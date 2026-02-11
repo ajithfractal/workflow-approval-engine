@@ -12,6 +12,7 @@ import org.springframework.context.annotation.ComponentScan;
     "com.fractalhive.workflowcore.workflow",
     "com.fractalhive.workflowcore.approval",
     "com.fractalhive.workflowcore.workitem",
+    "com.fractalhive.workflowcore.taskmanagement",
     "com.fractalhive.workflowcore.common",
     "com.fractalhive.workflowcore.config"
 })
