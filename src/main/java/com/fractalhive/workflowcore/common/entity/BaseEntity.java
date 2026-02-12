@@ -27,4 +27,10 @@ public abstract class BaseEntity {
 
     @Column(name = "created_by", nullable = false, updatable = false, length = 50)
     private String createdBy;
+
+    @Column(name = "updated_at", columnDefinition = "TIMESTAMP WITH TIME ZONE")
+    private Timestamp updatedAt;
+
+    @Column(name = "updated_by", length = 50)
+    private String updatedBy;
 }

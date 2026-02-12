@@ -40,4 +40,12 @@ public interface WorkflowInstanceRepository extends JpaRepository<WorkflowInstan
      */
     Optional<WorkflowInstance> findFirstByWorkItemIdAndStatusInOrderByCreatedAtDesc(
             UUID workItemId, List<WorkflowStatus> statuses);
+
+    /**
+     * Find workflow instances by workflow definition ID.
+     *
+     * @param workflowId the workflow definition ID
+     * @return list of workflow instances
+     */
+    List<WorkflowInstance> findByWorkflowId(UUID workflowId);
 }

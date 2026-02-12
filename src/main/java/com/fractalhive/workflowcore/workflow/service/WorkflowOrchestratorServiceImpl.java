@@ -26,8 +26,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Implementation of WorkflowOrchestratorService.
@@ -130,15 +132,29 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
         // Move work item to IN_REVIEW
         workItemSM.startReview(workItemId, userId);
 
-        // Start the first step and create tasks
+        // Start all steps with stepOrder = 1 (parallel execution)
         List<WorkflowStepInstance> steps = stepInstanceRepository
                 .findByWorkflowInstanceIdAndStatus(instance.getId(), StepStatus.NOT_STARTED);
 
         if (!steps.isEmpty()) {
-            WorkflowStepInstance firstStep = steps.get(0);
-            stepInstanceSM.start(firstStep.getId(), userId);
-            List<UUID> taskIds = taskManagementService.createTasksForStep(firstStep.getId(), userId);
-            logger.info("Started first step: {} and created {} tasks", firstStep.getId(), taskIds.size());
+            // Get step definitions to find steps with order = 1
+            List<WorkflowStepInstance> firstOrderSteps = new ArrayList<>();
+            for (WorkflowStepInstance step : steps) {
+                WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(step.getStepId())
+                        .orElse(null);
+                if (stepDef != null && stepDef.getStepOrder() == 1) {
+                    firstOrderSteps.add(step);
+                }
+            }
+
+            // Start all first-order steps in parallel
+            for (WorkflowStepInstance firstStep : firstOrderSteps) {
+                stepInstanceSM.start(firstStep.getId(), userId);
+                List<UUID> taskIds = taskManagementService.createTasksForStep(firstStep.getId(), userId);
+                logger.info("Started parallel step: {} (order: 1) and created {} tasks",
+                        firstStep.getId(), taskIds.size());
+            }
+            logger.info("Started {} parallel steps for order 1", firstOrderSteps.size());
         }
 
         logger.info("Workflow started successfully. Instance ID: {}", instance.getId());
@@ -218,7 +234,36 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
                 .orElseThrow(() -> new IllegalStateException("Step instance not found: " + stepInstanceId));
         UUID workflowInstanceId = stepInstance.getWorkflowInstanceId();
 
-        // Check for next step
+        // Get the completed step's definition to check its order
+        WorkflowStepDefinition completedStepDef = stepDefinitionRepository.findById(stepInstance.getStepId())
+                .orElseThrow(() -> new IllegalStateException("Step definition not found: " + stepInstance.getStepId()));
+
+        int completedStepOrder = completedStepDef.getStepOrder();
+
+        // Check if there are other steps with the same order still in progress
+        List<WorkflowStepInstance> allSteps = stepInstanceRepository
+                .findByWorkflowInstanceId(workflowInstanceId);
+
+        // Check for parallel steps (same order) still in progress
+        boolean hasParallelStepsInProgress = allSteps.stream()
+                .anyMatch(ps -> {
+                    if (ps.getId().equals(stepInstanceId)) {
+                        return false; // Skip the just-completed step
+                    }
+                    WorkflowStepDefinition psDef = stepDefinitionRepository.findById(ps.getStepId())
+                            .orElse(null);
+                    return psDef != null
+                            && psDef.getStepOrder().equals(completedStepOrder)
+                            && ps.getStatus() == StepStatus.IN_PROGRESS;
+                });
+
+        // If parallel steps are still in progress, don't advance yet
+        if (hasParallelStepsInProgress) {
+            logger.info("Parallel steps with order {} still in progress, waiting for completion", completedStepOrder);
+            return;
+        }
+
+        // All steps of this order are complete, now check for next steps
         List<WorkflowStepInstance> remaining = stepInstanceRepository
                 .findByWorkflowInstanceIdAndStatus(workflowInstanceId, StepStatus.NOT_STARTED);
 
@@ -233,13 +278,55 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
             workItemSM.approve(workflowInstance.getWorkItemId(), userId);
             logger.info("Workflow completed and work item approved. Work item ID: {}", workflowInstance.getWorkItemId());
         } else {
-            // Start the next step
-            WorkflowStepInstance nextStep = remaining.get(0);
-            logger.info("Starting next step: {}", nextStep.getId());
-            stepInstanceSM.start(nextStep.getId(), userId);
-            List<UUID> taskIds = taskManagementService.createTasksForStep(nextStep.getId(), userId);
-            logger.info("Created {} tasks for next step: {}", taskIds.size(), nextStep.getId());
+            // Find the next step order
+            int nextOrder = getNextStepOrder(workflowInstanceId, completedStepOrder);
+
+            if (nextOrder == -1) {
+                logger.warn("No next step order found after order {}", completedStepOrder);
+                return;
+            }
+
+            // Start ALL steps with the next order (parallel execution)
+            List<WorkflowStepInstance> nextSteps = remaining.stream()
+                    .filter(step -> {
+                        WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(step.getStepId())
+                                .orElse(null);
+                        return stepDef != null && stepDef.getStepOrder().equals(nextOrder);
+                    })
+                    .collect(Collectors.toList());
+
+            // Start all next steps in parallel
+            for (WorkflowStepInstance nextStep : nextSteps) {
+                stepInstanceSM.start(nextStep.getId(), userId);
+                List<UUID> taskIds = taskManagementService.createTasksForStep(nextStep.getId(), userId);
+                logger.info("Started next step: {} (order: {}) and created {} tasks",
+                        nextStep.getId(), nextOrder, taskIds.size());
+            }
+            logger.info("Started {} parallel steps for order {}", nextSteps.size(), nextOrder);
         }
+    }
+
+    /**
+     * Helper method to get the next step order after a given order.
+     *
+     * @param workflowInstanceId the workflow instance ID
+     * @param currentOrder       the current step order
+     * @return the next step order, or -1 if no next step exists
+     */
+    private int getNextStepOrder(UUID workflowInstanceId, int currentOrder) {
+        WorkflowInstance instance = workflowInstanceRepository.findById(workflowInstanceId)
+                .orElseThrow(() -> new IllegalStateException("Workflow instance not found: " + workflowInstanceId));
+
+        // Get all step definitions ordered by step order
+        List<WorkflowStepDefinition> allStepDefs = stepDefinitionRepository
+                .findByWorkflowIdOrderByStepOrderAsc(instance.getWorkflowId());
+
+        // Find the next order after currentOrder
+        return allStepDefs.stream()
+                .map(WorkflowStepDefinition::getStepOrder)
+                .filter(order -> order > currentOrder)
+                .findFirst()
+                .orElse(-1); // No next step
     }
 
     private void handleStepRejection(UUID stepInstanceId, String userId) {
