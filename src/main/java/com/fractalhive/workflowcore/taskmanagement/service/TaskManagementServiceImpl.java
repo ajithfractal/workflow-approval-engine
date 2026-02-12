@@ -8,6 +8,8 @@ import com.fractalhive.workflowcore.approval.enums.TaskStatus;
 import com.fractalhive.workflowcore.approval.repository.ApprovalCommentRepository;
 import com.fractalhive.workflowcore.approval.repository.ApprovalDecisionRepository;
 import com.fractalhive.workflowcore.approval.repository.ApprovalTaskRepository;
+import com.fractalhive.workflowcore.taskmanagement.dto.ApprovalCommentResponse;
+import com.fractalhive.workflowcore.taskmanagement.dto.ApprovalDecisionResponse;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskReassignRequest;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskResponse;
 import com.fractalhive.workflowcore.taskmanagement.resolver.ApproverResolver;
@@ -40,7 +42,7 @@ import java.util.stream.Collectors;
 
 /**
  * Implementation of TaskManagementService.
- * Handles task creation and basic fetching operations.
+ * Handles task creation, fetching, commenting, and reassignment.
  */
 @Service
 public class TaskManagementServiceImpl implements TaskManagementService {
@@ -146,8 +148,95 @@ public class TaskManagementServiceImpl implements TaskManagementService {
         ApprovalTask task = approvalTaskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
 
-        List<ApprovalComment> comments = approvalCommentRepository.findByApprovalTaskIdOrderByCommentedAtAsc(taskId);
-        Optional<ApprovalDecision> decision = approvalDecisionRepository.findByApprovalTaskId(taskId);
+        return buildTaskResponse(task);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TaskResponse> getTasksByApprover(String approverId, TaskStatus status) {
+        List<ApprovalTask> tasks;
+        if (status != null) {
+            tasks = approvalTaskRepository.findByApproverIdAndStatus(approverId, status);
+        } else {
+            // Return all tasks for this approver regardless of status
+            tasks = approvalTaskRepository.findByApproverIdOrderByCreatedAtDesc(approverId);
+        }
+        return tasks.stream()
+                .map(this::buildTaskResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TaskResponse> getTasksByStepInstance(UUID stepInstanceId) {
+        List<ApprovalTask> tasks = approvalTaskRepository.findByStepInstanceId(stepInstanceId);
+        return tasks.stream()
+                .map(this::buildTaskResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public ApprovalCommentResponse addComment(UUID taskId, String comment, String commentedBy) {
+        // Verify task exists
+        approvalTaskRepository.findById(taskId)
+                .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+
+        Timestamp now = Timestamp.from(Instant.now());
+
+        ApprovalComment approvalComment = new ApprovalComment();
+        approvalComment.setApprovalTaskId(taskId);
+        approvalComment.setComment(comment);
+        approvalComment.setCommentedBy(commentedBy);
+        approvalComment.setCommentedAt(now);
+        approvalComment.setCreatedAt(now);
+        approvalComment.setCreatedBy(commentedBy);
+
+        ApprovalComment saved = approvalCommentRepository.save(approvalComment);
+
+        logger.info("Added comment to task: {} by user: {}", taskId, commentedBy);
+
+        return toCommentResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public TaskResponse reassignTask(UUID taskId, TaskReassignRequest request, String userId) {
+        ApprovalTask task = approvalTaskRepository.findById(taskId)
+                .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+
+        if (task.getStatus() != TaskStatus.PENDING && task.getStatus() != TaskStatus.DELEGATED) {
+            throw new IllegalStateException("Cannot reassign task in status: " + task.getStatus());
+        }
+
+        task.setApproverId(request.getNewApproverId());
+        if (task.getStatus() == TaskStatus.DELEGATED) {
+            task.setStatus(TaskStatus.PENDING);
+        }
+
+        if (request.getReason() != null && !request.getReason().trim().isEmpty()) {
+            Timestamp now = Timestamp.from(Instant.now());
+            ApprovalComment comment = new ApprovalComment();
+            comment.setApprovalTaskId(taskId);
+            comment.setComment("Task reassigned: " + request.getReason());
+            comment.setCommentedBy(userId);
+            comment.setCommentedAt(now);
+            comment.setCreatedAt(now);
+            comment.setCreatedBy(userId);
+            approvalCommentRepository.save(comment);
+        }
+
+        approvalTaskRepository.save(task);
+        return getTask(taskId);
+    }
+
+    // ===== Helper methods =====
+
+    private TaskResponse buildTaskResponse(ApprovalTask task) {
+        List<ApprovalComment> comments = approvalCommentRepository
+                .findByApprovalTaskIdOrderByCommentedAtAsc(task.getId());
+        Optional<ApprovalDecision> decision = approvalDecisionRepository
+                .findByApprovalTaskId(task.getId());
         List<ApprovalDecision> decisions = decision.map(List::of).orElse(Collections.emptyList());
 
         WorkflowStepInstance stepInstance = task.getStepInstance();
@@ -157,12 +246,16 @@ public class TaskManagementServiceImpl implements TaskManagementService {
         WorkItem workItem = null;
 
         if (stepInstance != null) {
-            stepDefinition = workflowStepDefinitionRepository.findById(stepInstance.getStepId()).orElse(null);
-            workflowInstance = workflowInstanceRepository.findById(stepInstance.getWorkflowInstanceId()).orElse(null);
+            stepDefinition = workflowStepDefinitionRepository
+                    .findById(stepInstance.getStepId()).orElse(null);
+            workflowInstance = workflowInstanceRepository
+                    .findById(stepInstance.getWorkflowInstanceId()).orElse(null);
             
             if (workflowInstance != null) {
-                workflowDefinition = workflowDefinitionRepository.findById(workflowInstance.getWorkflowId()).orElse(null);
-                workItem = workItemRepository.findById(workflowInstance.getWorkItemId()).orElse(null);
+                workflowDefinition = workflowDefinitionRepository
+                        .findById(workflowInstance.getWorkflowId()).orElse(null);
+                workItem = workItemRepository
+                        .findById(workflowInstance.getWorkItemId()).orElse(null);
             }
         }
 
@@ -176,8 +269,8 @@ public class TaskManagementServiceImpl implements TaskManagementService {
                 .actedAt(task.getActedAt())
                 .createdAt(task.getCreatedAt())
                 .createdBy(task.getCreatedBy())
-                .comments(comments)
-                .decisions(decisions);
+                .comments(comments.stream().map(this::toCommentResponse).collect(Collectors.toList()))
+                .decisions(decisions.stream().map(this::toDecisionResponse).collect(Collectors.toList()));
 
         if (stepInstance != null && stepDefinition != null) {
             builder.stepInstance(TaskResponse.StepInstanceInfo.builder()
@@ -209,51 +302,26 @@ public class TaskManagementServiceImpl implements TaskManagementService {
         return builder.build();
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<TaskResponse> getTasksByApprover(String approverId, TaskStatus status) {
-        List<ApprovalTask> tasks;
-        if (status != null) {
-            tasks = approvalTaskRepository.findByApproverIdAndStatus(approverId, status);
-        } else {
-            tasks = approvalTaskRepository.findByApproverIdAndStatusOrderByDueAtAsc(approverId, TaskStatus.PENDING);
-        }
-        return tasks.stream()
-                .map(this::toTaskResponse)
-                .collect(Collectors.toList());
+    private ApprovalCommentResponse toCommentResponse(ApprovalComment comment) {
+        return ApprovalCommentResponse.builder()
+                .commentId(comment.getId())
+                .approvalTaskId(comment.getApprovalTaskId())
+                .comment(comment.getComment())
+                .commentedBy(comment.getCommentedBy())
+                .commentedAt(comment.getCommentedAt())
+                .build();
     }
 
-    @Override
-    @Transactional
-    public TaskResponse reassignTask(UUID taskId, TaskReassignRequest request, String userId) {
-        ApprovalTask task = approvalTaskRepository.findById(taskId)
-                .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
-
-        if (task.getStatus() != TaskStatus.PENDING && task.getStatus() != TaskStatus.DELEGATED) {
-            throw new IllegalStateException("Cannot reassign task in status: " + task.getStatus());
-        }
-
-        task.setApproverId(request.getNewApproverId());
-        if (task.getStatus() == TaskStatus.DELEGATED) {
-            task.setStatus(TaskStatus.PENDING);
-        }
-
-        if (request.getReason() != null && !request.getReason().trim().isEmpty()) {
-            ApprovalComment comment = new ApprovalComment();
-            comment.setApprovalTaskId(taskId);
-            comment.setComment("Task reassigned: " + request.getReason());
-            comment.setCommentedBy(userId);
-            comment.setCommentedAt(Timestamp.from(Instant.now()));
-            comment.setCreatedAt(Timestamp.from(Instant.now()));
-            comment.setCreatedBy(userId);
-            approvalCommentRepository.save(comment);
-        }
-
-        approvalTaskRepository.save(task);
-        return getTask(taskId);
+    private ApprovalDecisionResponse toDecisionResponse(ApprovalDecision decision) {
+        return ApprovalDecisionResponse.builder()
+                .decisionId(decision.getId())
+                .approvalTaskId(decision.getApprovalTaskId())
+                .decision(decision.getDecision())
+                .comments(decision.getComments())
+                .decidedBy(decision.getDecidedBy())
+                .decidedAt(decision.getDecidedAt())
+                .build();
     }
-
-    // Helper methods
 
     private List<String> resolveApproverIds(WorkflowStepApprover approver) {
         switch (approver.getApproverType()) {
@@ -263,15 +331,16 @@ public class TaskManagementServiceImpl implements TaskManagementService {
                 if (approverResolver != null) {
                     return approverResolver.resolveRoleToUserIds(approver.getApproverValue());
                 } else {
-                    logger.warn("ApproverResolver not available. Cannot resolve ROLE approver: {}", approver.getApproverValue());
+                    logger.warn("ApproverResolver not available. Cannot resolve ROLE approver: {}",
+                            approver.getApproverValue());
                     return Collections.emptyList();
                 }
             case MANAGER:
                 if (approverResolver != null) {
-                    logger.warn("MANAGER approver type requires context. Cannot resolve: {}", approver.getApproverValue());
-                    return Collections.emptyList();
+                    return approverResolver.resolveManagerChain(approver.getApproverValue());
                 } else {
-                    logger.warn("ApproverResolver not available. Cannot resolve MANAGER approver: {}", approver.getApproverValue());
+                    logger.warn("ApproverResolver not available. Cannot resolve MANAGER approver: {}",
+                            approver.getApproverValue());
                     return Collections.emptyList();
                 }
             default:
@@ -284,9 +353,5 @@ public class TaskManagementServiceImpl implements TaskManagementService {
             return null;
         }
         return Timestamp.from(Instant.now().plusSeconds(slaHours * 3600L));
-    }
-
-    private TaskResponse toTaskResponse(ApprovalTask task) {
-        return getTask(task.getId());
     }
 }

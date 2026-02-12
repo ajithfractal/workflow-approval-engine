@@ -1,10 +1,12 @@
 package com.fractalhive.workflowcore.approval.statemachine.action;
 
+import com.fractalhive.workflowcore.approval.entity.ApprovalComment;
 import com.fractalhive.workflowcore.approval.entity.ApprovalDecision;
 import com.fractalhive.workflowcore.approval.entity.ApprovalTask;
 import com.fractalhive.workflowcore.approval.enums.ApprovalTaskEvent;
 import com.fractalhive.workflowcore.approval.enums.DecisionType;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
+import com.fractalhive.workflowcore.approval.repository.ApprovalCommentRepository;
 import com.fractalhive.workflowcore.approval.repository.ApprovalDecisionRepository;
 import com.fractalhive.workflowcore.approval.repository.ApprovalTaskRepository;
 import org.springframework.statemachine.StateContext;
@@ -15,6 +17,7 @@ import java.time.Instant;
 
 /**
  * Action that records an approval decision and updates the task status.
+ * Also creates an ApprovalComment if comments are provided.
  */
 public class RecordApprovalDecisionAction implements Action<TaskStatus, ApprovalTaskEvent> {
 
@@ -24,11 +27,14 @@ public class RecordApprovalDecisionAction implements Action<TaskStatus, Approval
 
     private final ApprovalTaskRepository approvalTaskRepository;
     private final ApprovalDecisionRepository approvalDecisionRepository;
+    private final ApprovalCommentRepository approvalCommentRepository;
 
     public RecordApprovalDecisionAction(ApprovalTaskRepository approvalTaskRepository,
-                                        ApprovalDecisionRepository approvalDecisionRepository) {
+                                        ApprovalDecisionRepository approvalDecisionRepository,
+                                        ApprovalCommentRepository approvalCommentRepository) {
         this.approvalTaskRepository = approvalTaskRepository;
         this.approvalDecisionRepository = approvalDecisionRepository;
+        this.approvalCommentRepository = approvalCommentRepository;
     }
 
     @Override
@@ -58,6 +64,19 @@ public class RecordApprovalDecisionAction implements Action<TaskStatus, Approval
         decision.setCreatedAt(now);
         decision.setCreatedBy(userId);
         approvalDecisionRepository.save(decision);
+
+        // Also create an ApprovalComment entry if comments are provided
+        if (comments != null && !comments.trim().isEmpty()) {
+            String prefix = decisionType == DecisionType.APPROVED ? "[APPROVED] " : "[REJECTED] ";
+            ApprovalComment comment = new ApprovalComment();
+            comment.setApprovalTaskId(task.getId());
+            comment.setComment(prefix + comments);
+            comment.setCommentedBy(userId);
+            comment.setCommentedAt(now);
+            comment.setCreatedAt(now);
+            comment.setCreatedBy(userId);
+            approvalCommentRepository.save(comment);
+        }
 
         // Update task
         task.setActedAt(now);

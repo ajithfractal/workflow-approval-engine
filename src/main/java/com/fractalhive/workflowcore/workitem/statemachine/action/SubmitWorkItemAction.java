@@ -55,9 +55,8 @@ public class SubmitWorkItemAction implements Action<WorkItemStatus, WorkItemEven
         version.setCreatedAt(now);
         version.setCreatedBy(submittedBy);
         workItemVersionRepository.save(version);
-
-        // Update work item status
         workItem.setStatus(WorkItemStatus.SUBMITTED);
+        workItem.setContentRef(contentRef);
         workItemRepository.save(workItem);
     }
 }

@@ -23,6 +23,7 @@ public class WorkItemResponse {
     private String type;
     private WorkItemStatus status;
     private Integer currentVersion;
+    private String contentRef;
     private Timestamp createdAt;
     private String createdBy;
     private WorkItemVersionResponse latestVersion;

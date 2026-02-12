@@ -4,6 +4,7 @@ import com.fractalhive.workflowcore.workflow.entity.WorkflowInstance;
 import com.fractalhive.workflowcore.workflow.enums.WorkflowStatus;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowInstanceRepository;
 import com.fractalhive.workflowcore.workflow.statemachine.enums.WorkflowInstanceEvent;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.statemachine.StateMachine;
@@ -29,7 +30,7 @@ public class WorkflowInstanceStateMachineService {
     private final WorkflowInstanceRepository workflowInstanceRepository;
 
     public WorkflowInstanceStateMachineService(
-            StateMachineFactory<WorkflowStatus, WorkflowInstanceEvent> stateMachineFactory,
+            @Qualifier("workflowInstanceStateMachineFactory") StateMachineFactory<WorkflowStatus, WorkflowInstanceEvent> stateMachineFactory,
             WorkflowInstanceRepository workflowInstanceRepository) {
         this.stateMachineFactory = stateMachineFactory;
         this.workflowInstanceRepository = workflowInstanceRepository;
@@ -97,19 +98,28 @@ public class WorkflowInstanceStateMachineService {
 
         stateMachine.getExtendedState().getVariables().put(WORKFLOW_INSTANCE_EXTENDED_STATE_KEY, workflowInstance);
 
-        if (workflowInstance.getStatus() != null && workflowInstance.getStatus() != WorkflowStatus.NOT_STARTED) {
-            stateMachine.getStateMachineAccessor()
-                    .doWithAllRegions(access -> {
-                        access.resetStateMachine(
-                                new DefaultStateMachineContext<>(
-                                        workflowInstance.getStatus(), null, null, null));
-                    });
-        }
+        // Always restore the state machine to the workflow instance's current state
+        WorkflowStatus currentStatus = workflowInstance.getStatus() != null 
+                ? workflowInstance.getStatus() 
+                : WorkflowStatus.NOT_STARTED;
+        
+        stateMachine.getStateMachineAccessor()
+                .doWithAllRegions(access -> {
+                    access.resetStateMachine(
+                            new DefaultStateMachineContext<>(
+                                    currentStatus, null, null, null));
+                });
+
+        // Start the state machine to ensure it's fully initialized
+        stateMachine.start();
 
         return stateMachine;
     }
 
     private void persistState(WorkflowInstance workflowInstance, StateMachine<WorkflowStatus, WorkflowInstanceEvent> stateMachine) {
+        if (stateMachine.getState() == null || stateMachine.getState().getId() == null) {
+            throw new IllegalStateException("State machine state is null after transition");
+        }
         WorkflowStatus currentState = stateMachine.getState().getId();
         workflowInstance.setStatus(currentState);
         workflowInstanceRepository.save(workflowInstance);

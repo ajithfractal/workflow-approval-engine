@@ -2,6 +2,7 @@ package com.fractalhive.workflowcore.approval.statemachine.config;
 
 import com.fractalhive.workflowcore.approval.enums.ApprovalTaskEvent;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
+import com.fractalhive.workflowcore.approval.repository.ApprovalCommentRepository;
 import com.fractalhive.workflowcore.approval.repository.ApprovalDecisionRepository;
 import com.fractalhive.workflowcore.approval.repository.ApprovalTaskRepository;
 import com.fractalhive.workflowcore.approval.statemachine.action.*;
@@ -20,16 +21,19 @@ import java.util.Set;
  * Defines states, transitions, guards, and actions for approval task lifecycle.
  */
 @Configuration
-@EnableStateMachineFactory
+@EnableStateMachineFactory(name = "approvalTaskStateMachineFactory")
 public class ApprovalTaskStateMachineConfig extends StateMachineConfigurerAdapter<TaskStatus, ApprovalTaskEvent> {
 
     private final ApprovalTaskRepository approvalTaskRepository;
     private final ApprovalDecisionRepository approvalDecisionRepository;
+    private final ApprovalCommentRepository approvalCommentRepository;
 
     public ApprovalTaskStateMachineConfig(ApprovalTaskRepository approvalTaskRepository,
-                                         ApprovalDecisionRepository approvalDecisionRepository) {
+                                         ApprovalDecisionRepository approvalDecisionRepository,
+                                         ApprovalCommentRepository approvalCommentRepository) {
         this.approvalTaskRepository = approvalTaskRepository;
         this.approvalDecisionRepository = approvalDecisionRepository;
+        this.approvalCommentRepository = approvalCommentRepository;
     }
 
     @Override
@@ -46,7 +50,7 @@ public class ApprovalTaskStateMachineConfig extends StateMachineConfigurerAdapte
         DelegateAcceptGuard delegateAcceptGuard = new DelegateAcceptGuard();
         
         RecordApprovalDecisionAction recordApprovalDecisionAction = 
-            new RecordApprovalDecisionAction(approvalTaskRepository, approvalDecisionRepository);
+            new RecordApprovalDecisionAction(approvalTaskRepository, approvalDecisionRepository, approvalCommentRepository);
         DelegateTaskAction delegateTaskAction = new DelegateTaskAction(approvalTaskRepository);
         AcceptDelegationAction acceptDelegationAction = new AcceptDelegationAction(approvalTaskRepository);
         ExpireTaskAction expireTaskAction = new ExpireTaskAction(approvalTaskRepository);

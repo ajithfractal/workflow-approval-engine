@@ -1,7 +1,5 @@
 package com.fractalhive.workflowcore.taskmanagement.dto;
 
-import com.fractalhive.workflowcore.approval.entity.ApprovalComment;
-import com.fractalhive.workflowcore.approval.entity.ApprovalDecision;
 import com.fractalhive.workflowcore.approval.enums.ApproverType;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
 import lombok.AllArgsConstructor;
@@ -36,12 +34,12 @@ public class TaskResponse {
     /**
      * List of comments on this task.
      */
-    private List<ApprovalComment> comments;
+    private List<ApprovalCommentResponse> comments;
 
     /**
      * List of decisions made on this task.
      */
-    private List<ApprovalDecision> decisions;
+    private List<ApprovalDecisionResponse> decisions;
 
     /**
      * Step instance details.

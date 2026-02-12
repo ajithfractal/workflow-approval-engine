@@ -5,6 +5,7 @@ import com.fractalhive.workflowcore.approval.enums.ApprovalTaskEvent;
 import com.fractalhive.workflowcore.approval.enums.DecisionType;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
 import com.fractalhive.workflowcore.approval.repository.ApprovalTaskRepository;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.statemachine.StateMachine;
@@ -33,7 +34,7 @@ public class ApprovalTaskStateMachineService {
     private final ApprovalTaskRepository approvalTaskRepository;
 
     public ApprovalTaskStateMachineService(
-            StateMachineFactory<TaskStatus, ApprovalTaskEvent> stateMachineFactory,
+            @Qualifier("approvalTaskStateMachineFactory") StateMachineFactory<TaskStatus, ApprovalTaskEvent> stateMachineFactory,
             ApprovalTaskRepository approvalTaskRepository) {
         this.stateMachineFactory = stateMachineFactory;
         this.approvalTaskRepository = approvalTaskRepository;
@@ -176,15 +177,20 @@ public class ApprovalTaskStateMachineService {
         // Put task in extended state for guards/actions to access
         stateMachine.getExtendedState().getVariables().put(TASK_EXTENDED_STATE_KEY, task);
         
-        // Restore to the task's current persisted state if not PENDING
-        if (task.getStatus() != null && task.getStatus() != TaskStatus.PENDING) {
-            stateMachine.getStateMachineAccessor()
-                    .doWithAllRegions(access -> {
-                        access.resetStateMachine(
-                                new DefaultStateMachineContext<>(
-                                        task.getStatus(), null, null, null));
-                    });
-        }
+        // Always restore the state machine to the task's current state
+        TaskStatus currentStatus = task.getStatus() != null 
+                ? task.getStatus() 
+                : TaskStatus.PENDING;
+        
+        stateMachine.getStateMachineAccessor()
+                .doWithAllRegions(access -> {
+                    access.resetStateMachine(
+                            new DefaultStateMachineContext<>(
+                                    currentStatus, null, null, null));
+                });
+        
+        // Start the state machine to ensure it's fully initialized
+        stateMachine.start();
         
         return stateMachine;
     }
@@ -193,6 +199,9 @@ public class ApprovalTaskStateMachineService {
      * Persists the state machine's current state back to the task entity.
      */
     private void persistState(ApprovalTask task, StateMachine<TaskStatus, ApprovalTaskEvent> stateMachine) {
+        if (stateMachine.getState() == null || stateMachine.getState().getId() == null) {
+            throw new IllegalStateException("State machine state is null after transition");
+        }
         TaskStatus currentState = stateMachine.getState().getId();
         task.setStatus(currentState);
         approvalTaskRepository.save(task);

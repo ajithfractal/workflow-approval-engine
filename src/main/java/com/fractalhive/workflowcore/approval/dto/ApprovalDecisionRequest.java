@@ -17,11 +17,11 @@ import java.util.UUID;
 @AllArgsConstructor
 public class ApprovalDecisionRequest {
 
-    private UUID approvalTaskId;
+	private UUID approvalTaskId;
 
-    private DecisionType decision;
+	private DecisionType decision;
 
-    private String comments;
+	private String comments;
 
-    private String decidedBy;
+	private String decidedBy;
 }

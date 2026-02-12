@@ -2,6 +2,7 @@ package com.fractalhive.workflowcore.taskmanagement.service;
 
 import com.fractalhive.workflowcore.approval.dto.ApprovalTaskCreateRequest;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
+import com.fractalhive.workflowcore.taskmanagement.dto.ApprovalCommentResponse;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskReassignRequest;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskResponse;
 
@@ -10,7 +11,7 @@ import java.util.UUID;
 
 /**
  * Service interface for managing approval tasks.
- * Handles task creation and basic fetching operations.
+ * Handles task creation, fetching, commenting, and reassignment.
  */
 public interface TaskManagementService {
 
@@ -51,11 +52,29 @@ public interface TaskManagementService {
     List<TaskResponse> getTasksByApprover(String approverId, TaskStatus status);
 
     /**
+     * Gets all tasks for a specific step instance.
+     *
+     * @param stepInstanceId the step instance ID
+     * @return list of task responses
+     */
+    List<TaskResponse> getTasksByStepInstance(UUID stepInstanceId);
+
+    /**
+     * Adds a comment to an approval task.
+     *
+     * @param taskId      the task ID
+     * @param comment     the comment text
+     * @param commentedBy the user ID adding the comment
+     * @return the created comment response
+     */
+    ApprovalCommentResponse addComment(UUID taskId, String comment, String commentedBy);
+
+    /**
      * Reassigns a task to a new approver.
      *
-     * @param taskId the task ID
+     * @param taskId  the task ID
      * @param request the reassignment request
-     * @param userId the user ID performing the reassignment
+     * @param userId  the user ID performing the reassignment
      * @return updated task details
      */
     TaskResponse reassignTask(UUID taskId, TaskReassignRequest request, String userId);

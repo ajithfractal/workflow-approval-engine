@@ -19,7 +19,7 @@ import java.util.Set;
  * Defines states, transitions, and actions for workflow step instance lifecycle.
  */
 @Configuration
-@EnableStateMachineFactory
+@EnableStateMachineFactory(name = "workflowStepInstanceStateMachineFactory")
 public class WorkflowStepInstanceStateMachineConfig extends StateMachineConfigurerAdapter<StepStatus, WorkflowStepInstanceEvent> {
 
     private final WorkflowStepInstanceRepository workflowStepInstanceRepository;

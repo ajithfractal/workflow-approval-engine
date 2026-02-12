@@ -19,7 +19,7 @@ import java.util.Set;
  * Defines states, transitions, guards, and actions for work item lifecycle.
  */
 @Configuration
-@EnableStateMachineFactory
+@EnableStateMachineFactory(name = "workItemStateMachineFactory")
 public class WorkItemStateMachineConfig extends StateMachineConfigurerAdapter<WorkItemStatus, WorkItemEvent> {
 
     private final WorkItemRepository workItemRepository;

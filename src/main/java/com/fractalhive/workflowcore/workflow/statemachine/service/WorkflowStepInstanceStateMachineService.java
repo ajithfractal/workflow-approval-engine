@@ -4,6 +4,7 @@ import com.fractalhive.workflowcore.workflow.entity.WorkflowStepInstance;
 import com.fractalhive.workflowcore.workflow.enums.StepStatus;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowStepInstanceRepository;
 import com.fractalhive.workflowcore.workflow.statemachine.enums.WorkflowStepInstanceEvent;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.statemachine.StateMachine;
@@ -29,7 +30,7 @@ public class WorkflowStepInstanceStateMachineService {
     private final WorkflowStepInstanceRepository workflowStepInstanceRepository;
 
     public WorkflowStepInstanceStateMachineService(
-            StateMachineFactory<StepStatus, WorkflowStepInstanceEvent> stateMachineFactory,
+            @Qualifier("workflowStepInstanceStateMachineFactory") StateMachineFactory<StepStatus, WorkflowStepInstanceEvent> stateMachineFactory,
             WorkflowStepInstanceRepository workflowStepInstanceRepository) {
         this.stateMachineFactory = stateMachineFactory;
         this.workflowStepInstanceRepository = workflowStepInstanceRepository;
@@ -83,19 +84,28 @@ public class WorkflowStepInstanceStateMachineService {
 
         stateMachine.getExtendedState().getVariables().put(STEP_INSTANCE_EXTENDED_STATE_KEY, stepInstance);
 
-        if (stepInstance.getStatus() != null && stepInstance.getStatus() != StepStatus.NOT_STARTED) {
-            stateMachine.getStateMachineAccessor()
-                    .doWithAllRegions(access -> {
-                        access.resetStateMachine(
-                                new DefaultStateMachineContext<>(
-                                        stepInstance.getStatus(), null, null, null));
-                    });
-        }
+        // Always restore the state machine to the step instance's current state
+        StepStatus currentStatus = stepInstance.getStatus() != null 
+                ? stepInstance.getStatus() 
+                : StepStatus.NOT_STARTED;
+        
+        stateMachine.getStateMachineAccessor()
+                .doWithAllRegions(access -> {
+                    access.resetStateMachine(
+                            new DefaultStateMachineContext<>(
+                                    currentStatus, null, null, null));
+                });
+
+        // Start the state machine to ensure it's fully initialized
+        stateMachine.start();
 
         return stateMachine;
     }
 
     private void persistState(WorkflowStepInstance stepInstance, StateMachine<StepStatus, WorkflowStepInstanceEvent> stateMachine) {
+        if (stateMachine.getState() == null || stateMachine.getState().getId() == null) {
+            throw new IllegalStateException("State machine state is null after transition");
+        }
         StepStatus currentState = stateMachine.getState().getId();
         stepInstance.setStatus(currentState);
         workflowStepInstanceRepository.save(stepInstance);

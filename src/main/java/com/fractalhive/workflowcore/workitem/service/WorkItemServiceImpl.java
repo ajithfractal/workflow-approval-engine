@@ -1,15 +1,28 @@
 package com.fractalhive.workflowcore.workitem.service;
 
+import com.fractalhive.workflowcore.approval.entity.ApprovalTask;
+import com.fractalhive.workflowcore.approval.repository.ApprovalTaskRepository;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemCreateRequest;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemResponse;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemSubmitRequest;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemVersionResponse;
+import com.fractalhive.workflowcore.workitem.dto.WorkflowProgressResponse;
 import com.fractalhive.workflowcore.workitem.entity.WorkItem;
 import com.fractalhive.workflowcore.workitem.entity.WorkItemVersion;
 import com.fractalhive.workflowcore.workitem.enums.WorkItemStatus;
 import com.fractalhive.workflowcore.workitem.repository.WorkItemRepository;
 import com.fractalhive.workflowcore.workitem.repository.WorkItemVersionRepository;
 import com.fractalhive.workflowcore.workitem.statemachine.service.WorkItemStateMachineService;
+import com.fractalhive.workflowcore.workflow.entity.WorkflowDefinition;
+import com.fractalhive.workflowcore.workflow.entity.WorkflowInstance;
+import com.fractalhive.workflowcore.workflow.entity.WorkflowStepDefinition;
+import com.fractalhive.workflowcore.workflow.entity.WorkflowStepInstance;
+import com.fractalhive.workflowcore.workflow.enums.StepStatus;
+import com.fractalhive.workflowcore.workflow.enums.WorkflowStatus;
+import com.fractalhive.workflowcore.workflow.repository.WorkflowDefinitionRepository;
+import com.fractalhive.workflowcore.workflow.repository.WorkflowInstanceRepository;
+import com.fractalhive.workflowcore.workflow.repository.WorkflowStepDefinitionRepository;
+import com.fractalhive.workflowcore.workflow.repository.WorkflowStepInstanceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -17,6 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,14 +49,29 @@ public class WorkItemServiceImpl implements WorkItemService {
     private final WorkItemRepository workItemRepository;
     private final WorkItemVersionRepository workItemVersionRepository;
     private final WorkItemStateMachineService workItemStateMachineService;
+    private final WorkflowInstanceRepository workflowInstanceRepository;
+    private final WorkflowStepInstanceRepository stepInstanceRepository;
+    private final WorkflowStepDefinitionRepository stepDefinitionRepository;
+    private final WorkflowDefinitionRepository workflowDefinitionRepository;
+    private final ApprovalTaskRepository approvalTaskRepository;
 
     public WorkItemServiceImpl(
             WorkItemRepository workItemRepository,
             WorkItemVersionRepository workItemVersionRepository,
-            WorkItemStateMachineService workItemStateMachineService) {
+            WorkItemStateMachineService workItemStateMachineService,
+            WorkflowInstanceRepository workflowInstanceRepository,
+            WorkflowStepInstanceRepository stepInstanceRepository,
+            WorkflowStepDefinitionRepository stepDefinitionRepository,
+            WorkflowDefinitionRepository workflowDefinitionRepository,
+            ApprovalTaskRepository approvalTaskRepository) {
         this.workItemRepository = workItemRepository;
         this.workItemVersionRepository = workItemVersionRepository;
         this.workItemStateMachineService = workItemStateMachineService;
+        this.workflowInstanceRepository = workflowInstanceRepository;
+        this.stepInstanceRepository = stepInstanceRepository;
+        this.stepDefinitionRepository = stepDefinitionRepository;
+        this.workflowDefinitionRepository = workflowDefinitionRepository;
+        this.approvalTaskRepository = approvalTaskRepository;
     }
 
     @Override
@@ -51,6 +81,7 @@ public class WorkItemServiceImpl implements WorkItemService {
         workItem.setType(request.getType());
         workItem.setStatus(WorkItemStatus.DRAFT);
         workItem.setCurrentVersion(1);
+        workItem.setContentRef(request.getContentRef()); // Set contentRef if provided
 
         Timestamp now = Timestamp.from(Instant.now());
         workItem.setCreatedAt(now);
@@ -92,6 +123,7 @@ public class WorkItemServiceImpl implements WorkItemService {
         // Increment version
         int newVersion = workItem.getCurrentVersion() + 1;
         workItem.setCurrentVersion(newVersion);
+        workItem.setContentRef(contentRef); // Update contentRef convenience field
         workItemRepository.save(workItem);
 
         // Create version entity
@@ -134,6 +166,7 @@ public class WorkItemServiceImpl implements WorkItemService {
                 .type(workItem.getType())
                 .status(workItem.getStatus())
                 .currentVersion(workItem.getCurrentVersion())
+                .contentRef(workItem.getContentRef())
                 .createdAt(workItem.getCreatedAt())
                 .createdBy(workItem.getCreatedBy())
                 .latestVersion(latestVersionResponse)
@@ -150,6 +183,110 @@ public class WorkItemServiceImpl implements WorkItemService {
         return versions.stream()
                 .map(this::toVersionResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public WorkflowProgressResponse getWorkflowProgress(UUID workItemId) {
+        // Find active workflow instance
+        Optional<WorkflowInstance> instanceOpt = workflowInstanceRepository
+                .findFirstByWorkItemIdAndStatusInOrderByCreatedAtDesc(
+                        workItemId,
+                        List.of(WorkflowStatus.NOT_STARTED, WorkflowStatus.IN_PROGRESS, WorkflowStatus.COMPLETED, WorkflowStatus.FAILED));
+
+        if (instanceOpt.isEmpty()) {
+            return WorkflowProgressResponse.builder()
+                    .workItemId(workItemId)
+                    .steps(List.of())
+                    .progress(WorkflowProgressResponse.ProgressSummary.builder()
+                            .completedSteps(0)
+                            .totalSteps(0)
+                            .percentage(0)
+                            .build())
+                    .build();
+        }
+
+        WorkflowInstance instance = instanceOpt.get();
+
+        // Get workflow definition for name
+        WorkflowDefinition workflowDef = workflowDefinitionRepository.findById(instance.getWorkflowId())
+                .orElse(null);
+
+        // Get all step instances ordered by step order
+        List<WorkflowStepInstance> stepInstances = stepInstanceRepository
+                .findByWorkflowInstanceId(instance.getId());
+
+        // Build step progress info
+        List<WorkflowProgressResponse.StepProgressInfo> stepInfos = new ArrayList<>();
+        WorkflowProgressResponse.StepProgressInfo currentStepInfo = null;
+
+        for (WorkflowStepInstance stepInstance : stepInstances) {
+            WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(stepInstance.getStepId())
+                    .orElse(null);
+
+            // Get tasks for this step
+            List<ApprovalTask> tasks = approvalTaskRepository.findByStepInstanceId(stepInstance.getId());
+            List<WorkflowProgressResponse.TaskProgressInfo> taskInfos = tasks.stream()
+                    .map(task -> WorkflowProgressResponse.TaskProgressInfo.builder()
+                            .taskId(task.getId())
+                            .approverId(task.getApproverId())
+                            .status(task.getStatus())
+                            .dueAt(task.getDueAt())
+                            .actedAt(task.getActedAt())
+                            .build())
+                    .collect(Collectors.toList());
+
+            WorkflowProgressResponse.StepProgressInfo stepInfo = WorkflowProgressResponse.StepProgressInfo.builder()
+                    .stepInstanceId(stepInstance.getId())
+                    .stepId(stepInstance.getStepId())
+                    .stepName(stepDef != null ? stepDef.getStepName() : "Unknown")
+                    .stepOrder(stepDef != null ? stepDef.getStepOrder() : 0)
+                    .status(stepInstance.getStatus())
+                    .startedAt(stepInstance.getStartedAt())
+                    .completedAt(stepInstance.getCompletedAt())
+                    .tasks(taskInfos)
+                    .build();
+
+            stepInfos.add(stepInfo);
+
+            // Track current step (IN_PROGRESS)
+            if (stepInstance.getStatus() == StepStatus.IN_PROGRESS) {
+                currentStepInfo = stepInfo;
+            }
+        }
+
+        // Sort by step order
+        stepInfos.sort(Comparator.comparing(WorkflowProgressResponse.StepProgressInfo::getStepOrder));
+
+        // Calculate progress
+        long completedCount = stepInfos.stream()
+                .filter(s -> s.getStatus() == StepStatus.COMPLETED)
+                .count();
+        int totalSteps = stepInfos.size();
+        int percentage = totalSteps > 0 ? (int) ((completedCount * 100) / totalSteps) : 0;
+
+        // Build workflow instance info
+        WorkflowProgressResponse.WorkflowInstanceInfo workflowInfo = WorkflowProgressResponse.WorkflowInstanceInfo.builder()
+                .workflowInstanceId(instance.getId())
+                .workflowId(instance.getWorkflowId())
+                .workflowName(workflowDef != null ? workflowDef.getName() : "Unknown")
+                .workflowVersion(instance.getWorkflowVersion())
+                .status(instance.getStatus())
+                .startedAt(instance.getStartedAt())
+                .completedAt(instance.getCompletedAt())
+                .build();
+
+        return WorkflowProgressResponse.builder()
+                .workItemId(workItemId)
+                .workflowInstance(workflowInfo)
+                .steps(stepInfos)
+                .currentStep(currentStepInfo)
+                .progress(WorkflowProgressResponse.ProgressSummary.builder()
+                        .completedSteps((int) completedCount)
+                        .totalSteps(totalSteps)
+                        .percentage(percentage)
+                        .build())
+                .build();
     }
 
     private WorkItemVersionResponse toVersionResponse(WorkItemVersion version) {

@@ -30,6 +30,13 @@ public class WorkItem extends BaseEntity {
     private Integer currentVersion = 1;
 
     /**
+     * Content reference (file path, blob reference, etc.) for the latest version.
+     * This is a convenience field that mirrors the latest WorkItemVersion's contentRef.
+     */
+    @Column(name = "content_ref", columnDefinition = "TEXT")
+    private String contentRef;
+
+    /**
      * Optional read-only association to versions.
      * Not used for persistence, only for convenience queries.
      */

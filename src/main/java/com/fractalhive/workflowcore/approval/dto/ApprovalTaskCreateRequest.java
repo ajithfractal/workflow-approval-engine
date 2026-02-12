@@ -19,11 +19,11 @@ import com.fractalhive.workflowcore.approval.enums.ApproverType;
 @AllArgsConstructor
 public class ApprovalTaskCreateRequest {
 
-    private UUID stepInstanceId;
+	private UUID stepInstanceId;
 
-    private String approverId;
+	private String approverId;
 
-    private ApproverType approverType;
+	private ApproverType approverType;
 
-    private Timestamp dueAt;
+	private Timestamp dueAt;
 }

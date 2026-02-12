@@ -16,9 +16,9 @@ import java.util.UUID;
 @AllArgsConstructor
 public class ApprovalCommentRequest {
 
-    private UUID approvalTaskId;
+	private UUID approvalTaskId;
 
-    private String comment;
+	private String comment;
 
-    private String commentedBy;
+	private String commentedBy;
 }

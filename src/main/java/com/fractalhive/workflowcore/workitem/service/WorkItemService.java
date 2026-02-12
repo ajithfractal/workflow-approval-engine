@@ -4,6 +4,7 @@ import com.fractalhive.workflowcore.workitem.dto.WorkItemCreateRequest;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemResponse;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemSubmitRequest;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemVersionResponse;
+import com.fractalhive.workflowcore.workitem.dto.WorkflowProgressResponse;
 
 import java.util.List;
 import java.util.UUID;
@@ -58,4 +59,13 @@ public interface WorkItemService {
      * @return list of work item versions
      */
     List<WorkItemVersionResponse> getVersions(UUID workItemId);
+
+    /**
+     * Gets workflow progress for a work item.
+     * Returns current step, all steps with their statuses, and progress summary.
+     *
+     * @param workItemId the work item ID
+     * @return workflow progress response
+     */
+    WorkflowProgressResponse getWorkflowProgress(UUID workItemId);
 }

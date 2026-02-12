@@ -45,7 +45,16 @@ public interface ApprovalTaskRepository extends JpaRepository<ApprovalTask, UUID
      * Find all pending approval tasks for an approver.
      *
      * @param approverId the approver ID
+     * @param status     the task status
      * @return list of pending approval tasks
      */
     List<ApprovalTask> findByApproverIdAndStatusOrderByDueAtAsc(String approverId, TaskStatus status);
+
+    /**
+     * Find all approval tasks for an approver (all statuses), ordered by created date descending.
+     *
+     * @param approverId the approver ID
+     * @return list of approval tasks
+     */
+    List<ApprovalTask> findByApproverIdOrderByCreatedAtDesc(String approverId);
 }
