@@ -7,7 +7,6 @@ com\fractalhive\workflowcore\workflow\entity\WorkflowStepDefinition.class
 com\fractalhive\workflowcore\approval\dto\ApprovalCommentRequest$ApprovalCommentRequestBuilder.class
 com\fractalhive\workflowcore\workitem\statemachine\guard\WorkItemSubmittedGuard.class
 com\fractalhive\workflowcore\taskmanagement\dto\ApprovalDecisionResponse$ApprovalDecisionResponseBuilder.class
-com\fractalhive\workflowcore\config\CorsConfig.class
 com\fractalhive\workflowcore\workitem\dto\WorkflowProgressResponse$ProgressSummary$ProgressSummaryBuilder.class
 com\fractalhive\workflowcore\workitem\dto\WorkflowProgressResponse$WorkflowInstanceInfo$WorkflowInstanceInfoBuilder.class
 com\fractalhive\workflowcore\workitem\statemachine\action\ArchiveWorkItemAction.class

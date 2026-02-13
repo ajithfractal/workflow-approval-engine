@@ -10,6 +10,7 @@ import com.fractalhive.workflowcore.workitem.dto.WorkflowProgressResponse;
 import com.fractalhive.workflowcore.workitem.entity.WorkItem;
 import com.fractalhive.workflowcore.workitem.entity.WorkItemVersion;
 import com.fractalhive.workflowcore.workitem.enums.WorkItemStatus;
+import org.springframework.data.domain.Sort;
 import com.fractalhive.workflowcore.workitem.repository.WorkItemRepository;
 import com.fractalhive.workflowcore.workitem.repository.WorkItemVersionRepository;
 import com.fractalhive.workflowcore.workitem.statemachine.service.WorkItemStateMachineService;
@@ -81,7 +82,6 @@ public class WorkItemServiceImpl implements WorkItemService {
         workItem.setType(request.getType());
         workItem.setStatus(WorkItemStatus.DRAFT);
         workItem.setCurrentVersion(1);
-        workItem.setContentRef(request.getContentRef()); // Set contentRef if provided
 
         Timestamp now = Timestamp.from(Instant.now());
         workItem.setCreatedAt(now);
@@ -123,7 +123,6 @@ public class WorkItemServiceImpl implements WorkItemService {
         // Increment version
         int newVersion = workItem.getCurrentVersion() + 1;
         workItem.setCurrentVersion(newVersion);
-        workItem.setContentRef(contentRef); // Update contentRef convenience field
         workItemRepository.save(workItem);
 
         // Create version entity
@@ -166,7 +165,7 @@ public class WorkItemServiceImpl implements WorkItemService {
                 .type(workItem.getType())
                 .status(workItem.getStatus())
                 .currentVersion(workItem.getCurrentVersion())
-                .contentRef(workItem.getContentRef())
+                .contentRef(latestVersionResponse != null ? latestVersionResponse.getContentRef() : null)
                 .createdAt(workItem.getCreatedAt())
                 .createdBy(workItem.getCreatedBy())
                 .latestVersion(latestVersionResponse)
@@ -287,6 +286,109 @@ public class WorkItemServiceImpl implements WorkItemService {
                         .percentage(percentage)
                         .build())
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WorkItemResponse> getWorkItemsByWorkflowDefinitionId(UUID workflowDefinitionId) {
+        // Find all workflow instances with the given workflow definition ID
+        List<WorkflowInstance> workflowInstances = workflowInstanceRepository.findByWorkflowId(workflowDefinitionId);
+
+        // Extract unique work item IDs
+        List<UUID> workItemIds = workflowInstances.stream()
+                .map(WorkflowInstance::getWorkItemId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (workItemIds.isEmpty()) {
+            logger.debug("No work items found for workflow definition: {}", workflowDefinitionId);
+            return List.of();
+        }
+
+        // Fetch work items
+        List<WorkItem> workItems = workItemRepository.findAllById(workItemIds);
+
+        // Convert to response DTOs
+        return workItems.stream()
+                .map(workItem -> {
+                    Optional<WorkItemVersion> latestVersion = workItemVersionRepository
+                            .findFirstByWorkItemIdOrderByVersionDesc(workItem.getId());
+
+                    List<WorkItemVersion> versions = workItemVersionRepository
+                            .findByWorkItemIdOrderByVersionDesc(workItem.getId());
+
+                    WorkItemVersionResponse latestVersionResponse = latestVersion
+                            .map(this::toVersionResponse)
+                            .orElse(null);
+
+                    List<WorkItemVersionResponse> versionResponses = versions.stream()
+                            .map(this::toVersionResponse)
+                            .collect(Collectors.toList());
+
+                    return WorkItemResponse.builder()
+                            .workItemId(workItem.getId())
+                            .type(workItem.getType())
+                            .status(workItem.getStatus())
+                            .currentVersion(workItem.getCurrentVersion())
+                            .contentRef(latestVersionResponse != null ? latestVersionResponse.getContentRef() : null)
+                            .createdAt(workItem.getCreatedAt())
+                            .createdBy(workItem.getCreatedBy())
+                            .latestVersion(latestVersionResponse)
+                            .versions(versionResponses)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WorkItemResponse> listWorkItems(WorkItemStatus status, String type) {
+        List<WorkItem> workItems;
+
+        if (status != null && type != null) {
+            // Filter by both status and type
+            workItems = workItemRepository.findByStatusAndType(status, type);
+        } else if (status != null) {
+            // Filter by status only
+            workItems = workItemRepository.findByStatus(status);
+        } else if (type != null) {
+            // Filter by type only
+            workItems = workItemRepository.findByType(type);
+        } else {
+            // No filters - get all work items, ordered by creation date descending
+            workItems = workItemRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        }
+
+        // Convert to response DTOs
+        return workItems.stream()
+                .map(workItem -> {
+                    Optional<WorkItemVersion> latestVersion = workItemVersionRepository
+                            .findFirstByWorkItemIdOrderByVersionDesc(workItem.getId());
+
+                    List<WorkItemVersion> versions = workItemVersionRepository
+                            .findByWorkItemIdOrderByVersionDesc(workItem.getId());
+
+                    WorkItemVersionResponse latestVersionResponse = latestVersion
+                            .map(this::toVersionResponse)
+                            .orElse(null);
+
+                    List<WorkItemVersionResponse> versionResponses = versions.stream()
+                            .map(this::toVersionResponse)
+                            .collect(Collectors.toList());
+
+                    return WorkItemResponse.builder()
+                            .workItemId(workItem.getId())
+                            .type(workItem.getType())
+                            .status(workItem.getStatus())
+                            .currentVersion(workItem.getCurrentVersion())
+                            .contentRef(latestVersionResponse != null ? latestVersionResponse.getContentRef() : null)
+                            .createdAt(workItem.getCreatedAt())
+                            .createdBy(workItem.getCreatedBy())
+                            .latestVersion(latestVersionResponse)
+                            .versions(versionResponses)
+                            .build();
+                })
+                .collect(Collectors.toList());
     }
 
     private WorkItemVersionResponse toVersionResponse(WorkItemVersion version) {

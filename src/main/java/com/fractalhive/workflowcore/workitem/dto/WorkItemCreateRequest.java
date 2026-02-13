@@ -14,10 +14,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class WorkItemCreateRequest {
 
-    private String type;
-
     /**
-     * Optional content reference (file path, blob reference, etc.).
+     * Type of the work item (e.g., "contract", "purchase_request", etc.).
      */
-    private String contentRef;
+    private String type;
 }

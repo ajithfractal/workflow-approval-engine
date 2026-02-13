@@ -29,4 +29,13 @@ public interface WorkItemRepository extends JpaRepository<WorkItem, UUID> {
      * @return list of work items
      */
     List<WorkItem> findByType(String type);
+
+    /**
+     * Find work items by status and type.
+     *
+     * @param status the work item status
+     * @param type   the work item type
+     * @return list of work items
+     */
+    List<WorkItem> findByStatusAndType(WorkItemStatus status, String type);
 }

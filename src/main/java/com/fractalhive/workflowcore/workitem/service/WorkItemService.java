@@ -5,6 +5,7 @@ import com.fractalhive.workflowcore.workitem.dto.WorkItemResponse;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemSubmitRequest;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemVersionResponse;
 import com.fractalhive.workflowcore.workitem.dto.WorkflowProgressResponse;
+import com.fractalhive.workflowcore.workitem.enums.WorkItemStatus;
 
 import java.util.List;
 import java.util.UUID;
@@ -68,4 +69,22 @@ public interface WorkItemService {
      * @return workflow progress response
      */
     WorkflowProgressResponse getWorkflowProgress(UUID workItemId);
+
+    /**
+     * Gets all work items associated with a workflow definition.
+     * Returns work items that have workflow instances using the specified workflow definition.
+     *
+     * @param workflowDefinitionId the workflow definition ID
+     * @return list of work items
+     */
+    List<WorkItemResponse> getWorkItemsByWorkflowDefinitionId(UUID workflowDefinitionId);
+
+    /**
+     * Lists all work items, optionally filtered by status and/or type.
+     *
+     * @param status optional status filter
+     * @param type   optional type filter
+     * @return list of work items
+     */
+    List<WorkItemResponse> listWorkItems(WorkItemStatus status, String type);
 }

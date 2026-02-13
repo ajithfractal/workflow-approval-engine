@@ -12,7 +12,6 @@ D:\ajith\approval_engine\src\main\java\com\fractalhive\workflowcore\workitem\ent
 D:\ajith\approval_engine\src\main\java\com\fractalhive\workflowcore\approval\statemachine\guard\TaskPendingGuard.java
 D:\ajith\approval_engine\src\main\java\com\fractalhive\workflowcore\workflow\service\WorkflowDefinitionService.java
 D:\ajith\approval_engine\src\main\java\com\fractalhive\workflowcore\approval\statemachine\config\ApprovalTaskStateMachineConfig.java
-D:\ajith\approval_engine\src\main\java\com\fractalhive\workflowcore\config\CorsConfig.java
 D:\ajith\approval_engine\src\main\java\com\fractalhive\workflowcore\approval\enums\DecisionType.java
 D:\ajith\approval_engine\src\main\java\com\fractalhive\workflowcore\workflow\entity\WorkflowStepApprover.java
 D:\ajith\approval_engine\src\main\java\com\fractalhive\workflowcore\workflow\entity\WorkflowStepInstance.java
