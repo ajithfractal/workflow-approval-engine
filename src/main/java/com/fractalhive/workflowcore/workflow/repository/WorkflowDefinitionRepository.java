@@ -38,4 +38,12 @@ public interface WorkflowDefinitionRepository extends JpaRepository<WorkflowDefi
      * @return optional workflow definition
      */
     Optional<WorkflowDefinition> findByNameAndVersion(String name, Integer version);
+
+    /**
+     * Find the latest version of a workflow by name (highest version number).
+     *
+     * @param name the workflow name
+     * @return optional workflow definition with highest version
+     */
+    Optional<WorkflowDefinition> findFirstByNameOrderByVersionDesc(String name);
 }

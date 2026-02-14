@@ -340,7 +340,7 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
                 .orElseThrow(() -> new IllegalStateException("Step instance not found: " + stepInstanceId));
         UUID workflowInstanceId = stepInstance.getWorkflowInstanceId();
 
-        // Cancel all pending tasks in remaining steps
+        // Cancel all pending tasks in remaining steps (future steps)
         List<WorkflowStepInstance> remaining = stepInstanceRepository
                 .findByWorkflowInstanceIdAndStatus(workflowInstanceId, StepStatus.NOT_STARTED);
         for (WorkflowStepInstance remainingStep : remaining) {

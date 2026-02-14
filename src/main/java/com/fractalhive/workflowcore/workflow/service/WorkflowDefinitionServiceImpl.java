@@ -22,6 +22,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -59,6 +60,10 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
                             String.format("Workflow definition already exists: %s v%d", request.getName(), request.getVersion()));
                 });
 
+        // Check if a previous version exists (for step copying)
+        Optional<WorkflowDefinition> previousVersion = workflowDefinitionRepository
+                .findFirstByNameOrderByVersionDesc(request.getName());
+
         WorkflowDefinition workflow = new WorkflowDefinition();
         workflow.setName(request.getName());
         workflow.setVersion(request.getVersion());
@@ -70,6 +75,22 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
 
         WorkflowDefinition saved = workflowDefinitionRepository.save(workflow);
         logger.info("Created workflow definition: {} v{} (ID: {})", request.getName(), request.getVersion(), saved.getId());
+
+        // If a previous version exists, copy its steps and approvers to the new version
+        if (previousVersion.isPresent()) {
+            UUID previousWorkflowId = previousVersion.get().getId();
+            List<WorkflowStepDefinition> previousSteps = workflowStepDefinitionRepository
+                    .findByWorkflowIdOrderByStepOrderAsc(previousWorkflowId);
+
+            if (!previousSteps.isEmpty()) {
+                copyStepsAndApprovers(previousWorkflowId, saved.getId(), createdBy);
+                logger.info("Copied {} step(s) from previous version {} v{} (ID: {}) to new version {} v{} (ID: {})",
+                        previousSteps.size(),
+                        previousVersion.get().getName(), previousVersion.get().getVersion(), previousWorkflowId,
+                        request.getName(), request.getVersion(), saved.getId());
+            }
+        }
+
         return saved.getId();
     }
 
@@ -77,8 +98,11 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
     @Transactional
     public UUID createStep(UUID workflowId, StepDefinitionRequest request, String createdBy) {
         // Verify workflow exists
-        workflowDefinitionRepository.findById(workflowId)
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(workflowId)
                 .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + workflowId));
+
+        // Block modification if workflow instances exist
+        checkNoInstancesExist(workflowId, workflow.getName(), workflow.getVersion());
 
         // Validate minApprovals for N_OF_M approval type
         if (request.getApprovalType() == ApprovalType.N_OF_M) {
@@ -173,6 +197,9 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
 
         WorkflowStepDefinition step = workflowStepDefinitionRepository.findById(stepId)
                 .orElseThrow(() -> new IllegalArgumentException("Step definition not found: " + stepId));
+
+        // Block modification if workflow instances exist
+        checkNoInstancesExistForStep(step.getWorkflowId());
 
         // Get existing approvers
         List<WorkflowStepApprover> existingApprovers = workflowStepApproverRepository.findByStepId(stepId);
@@ -269,59 +296,35 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
             logger.info("Workflow definition {} v{} has {} instance(s). Creating new version instead of updating.",
                     workflow.getName(), workflow.getVersion(), instances.size());
 
-            // Check if the requested name+version already exists
-            workflowDefinitionRepository.findByNameAndVersion(request.getName(), request.getVersion())
-                    .ifPresent(w -> {
-                        throw new IllegalArgumentException(
-                                String.format("Workflow definition already exists: %s v%d", request.getName(), request.getVersion()));
-                    });
+            // Determine the next version number
+            int nextVersion = workflowDefinitionRepository
+                    .findFirstByNameOrderByVersionDesc(workflow.getName())
+                    .map(w -> w.getVersion() + 1)
+                    .orElse(workflow.getVersion() + 1);
 
-            // Create new workflow definition version
-            WorkflowDefinition newWorkflow = new WorkflowDefinition();
-            newWorkflow.setName(request.getName());
-            newWorkflow.setVersion(request.getVersion());
-            newWorkflow.setIsActive(true);
+            // Check if a workflow with the new version already exists
+            Optional<WorkflowDefinition> existingNewVersion = workflowDefinitionRepository
+                    .findByNameAndVersion(workflow.getName(), nextVersion);
 
-            Timestamp now = Timestamp.from(Instant.now());
-            newWorkflow.setCreatedAt(now);
-            newWorkflow.setCreatedBy(updatedBy);
-            newWorkflow = workflowDefinitionRepository.save(newWorkflow);
-
-            // Copy all steps from the original workflow
-            List<WorkflowStepDefinition> originalSteps = workflowStepDefinitionRepository
-                    .findByWorkflowIdOrderByStepOrderAsc(workflowId);
-
-            for (WorkflowStepDefinition originalStep : originalSteps) {
-                // Create new step
-                WorkflowStepDefinition newStep = new WorkflowStepDefinition();
-                newStep.setWorkflowId(newWorkflow.getId());
-                newStep.setStepName(originalStep.getStepName());
-                newStep.setStepOrder(originalStep.getStepOrder());
-                newStep.setApprovalType(originalStep.getApprovalType());
-                newStep.setMinApprovals(originalStep.getMinApprovals());
-                newStep.setSlaHours(originalStep.getSlaHours());
-                newStep.setCreatedAt(now);
-                newStep.setCreatedBy(updatedBy);
-                newStep = workflowStepDefinitionRepository.save(newStep);
-
-                // Copy all approvers for this step
-                List<WorkflowStepApprover> originalApprovers = workflowStepApproverRepository.findByStepId(originalStep.getId());
-                for (WorkflowStepApprover originalApprover : originalApprovers) {
-                    WorkflowStepApprover newApprover = new WorkflowStepApprover();
-                    newApprover.setStepId(newStep.getId());
-                    newApprover.setApproverType(originalApprover.getApproverType());
-                    newApprover.setApproverValue(originalApprover.getApproverValue());
-                    newApprover.setCreatedAt(now);
-                    newApprover.setCreatedBy(updatedBy);
-                    workflowStepApproverRepository.save(newApprover);
-                }
+            if (existingNewVersion.isPresent()) {
+                logger.info("New version {} v{} already exists (ID: {}). Returning existing version.",
+                        workflow.getName(), nextVersion, existingNewVersion.get().getId());
+                return existingNewVersion.get().getId();
             }
 
+            // Create new workflow definition version using the createWorkflow method
+            // createWorkflow will automatically copy steps/approvers from the previous version
+            WorkflowDefinitionCreateRequest createRequest = WorkflowDefinitionCreateRequest.builder()
+                    .name(workflow.getName())
+                    .version(nextVersion)
+                    .build();
+            UUID newWorkflowId = createWorkflow(createRequest, updatedBy);
+
             logger.info("Created new workflow definition version: {} v{} (ID: {}) from {} v{} (ID: {})",
-                    newWorkflow.getName(), newWorkflow.getVersion(), newWorkflow.getId(),
+                    workflow.getName(), nextVersion, newWorkflowId,
                     workflow.getName(), workflow.getVersion(), workflowId);
             
-            return newWorkflow.getId();
+            return newWorkflowId;
         } else {
             // No instances exist - safe to update the existing workflow
             // Check if name+version combination already exists (excluding current workflow)
@@ -371,6 +374,9 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowStepDefinition step = workflowStepDefinitionRepository.findById(stepId)
                 .orElseThrow(() -> new IllegalArgumentException("Step definition not found: " + stepId));
 
+        // Block modification if workflow instances exist
+        checkNoInstancesExistForStep(step.getWorkflowId());
+
         // Validate minApprovals for N_OF_M
         if (request.getApprovalType() == ApprovalType.N_OF_M) {
             if (request.getMinApprovals() == null || request.getMinApprovals() <= 0) {
@@ -400,6 +406,9 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowStepDefinition step = workflowStepDefinitionRepository.findById(stepId)
                 .orElseThrow(() -> new IllegalArgumentException("Step definition not found: " + stepId));
 
+        // Block modification if workflow instances exist
+        checkNoInstancesExistForStep(step.getWorkflowId());
+
         // Delete all approvers first
         List<WorkflowStepApprover> approvers = workflowStepApproverRepository.findByStepId(stepId);
         workflowStepApproverRepository.deleteAll(approvers);
@@ -418,6 +427,9 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowStepDefinition step = workflowStepDefinitionRepository.findById(stepId)
                 .orElseThrow(() -> new IllegalArgumentException("Step definition not found: " + stepId));
 
+        // Block modification if workflow instances exist
+        checkNoInstancesExistForStep(step.getWorkflowId());
+
         // Get remaining approvers after removal
         List<WorkflowStepApprover> remainingApprovers = workflowStepApproverRepository.findByStepId(stepId);
         int remainingCount = remainingApprovers.size() - 1; // -1 for the one being removed
@@ -433,6 +445,80 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
 
         workflowStepApproverRepository.delete(approver);
         logger.info("Removed approver {} (ID: {}) from step {}", approver.getApproverValue(), approverId, stepId);
+    }
+
+    /**
+     * Checks if workflow instances exist for this definition.
+     * If they do, throws an exception advising to create a new version.
+     *
+     * @param workflowId the workflow definition ID
+     * @param name       the workflow name
+     * @param version    the workflow version
+     */
+    private void checkNoInstancesExist(UUID workflowId, String name, Integer version) {
+        List<WorkflowInstance> instances = workflowInstanceRepository.findByWorkflowId(workflowId);
+        if (!instances.isEmpty()) {
+            throw new IllegalStateException(
+                    String.format("Workflow definition '%s' v%d is used by %d work item(s). " +
+                            "Cannot modify steps/approvers. Please create a new version by calling " +
+                            "PUT /api/workflow-definitions/%s to auto-create a new version.",
+                            name, version, instances.size(), workflowId));
+        }
+    }
+
+    /**
+     * Checks if workflow instances exist for the workflow that owns the given step.
+     * If they do, throws an exception advising to create a new version.
+     *
+     * @param workflowId the workflow definition ID (from the step)
+     */
+    private void checkNoInstancesExistForStep(UUID workflowId) {
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(workflowId)
+                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + workflowId));
+        checkNoInstancesExist(workflowId, workflow.getName(), workflow.getVersion());
+    }
+
+    /**
+     * Copies all steps and approvers from one workflow definition to another.
+     *
+     * @param sourceWorkflowId the source workflow definition ID
+     * @param targetWorkflowId the target workflow definition ID
+     * @param createdBy        the user performing the copy
+     */
+    private void copyStepsAndApprovers(UUID sourceWorkflowId, UUID targetWorkflowId, String createdBy) {
+        Timestamp now = Timestamp.from(Instant.now());
+
+        List<WorkflowStepDefinition> originalSteps = workflowStepDefinitionRepository
+                .findByWorkflowIdOrderByStepOrderAsc(sourceWorkflowId);
+
+        for (WorkflowStepDefinition originalStep : originalSteps) {
+            // Create new step
+            WorkflowStepDefinition newStep = new WorkflowStepDefinition();
+            newStep.setWorkflowId(targetWorkflowId);
+            newStep.setStepName(originalStep.getStepName());
+            newStep.setStepOrder(originalStep.getStepOrder());
+            newStep.setApprovalType(originalStep.getApprovalType());
+            newStep.setMinApprovals(originalStep.getMinApprovals());
+            newStep.setSlaHours(originalStep.getSlaHours());
+            newStep.setCreatedAt(now);
+            newStep.setCreatedBy(createdBy);
+            newStep = workflowStepDefinitionRepository.save(newStep);
+
+            // Copy all approvers for this step
+            List<WorkflowStepApprover> originalApprovers = workflowStepApproverRepository.findByStepId(originalStep.getId());
+            for (WorkflowStepApprover originalApprover : originalApprovers) {
+                WorkflowStepApprover newApprover = new WorkflowStepApprover();
+                newApprover.setStepId(newStep.getId());
+                newApprover.setApproverType(originalApprover.getApproverType());
+                newApprover.setApproverValue(originalApprover.getApproverValue());
+                newApprover.setCreatedAt(now);
+                newApprover.setCreatedBy(createdBy);
+                workflowStepApproverRepository.save(newApprover);
+            }
+        }
+
+        logger.info("Copied {} step(s) and their approvers from workflow {} to workflow {}",
+                originalSteps.size(), sourceWorkflowId, targetWorkflowId);
     }
 
     private WorkflowDefinitionResponse toResponse(WorkflowDefinition workflow) {
