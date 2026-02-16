@@ -11,6 +11,7 @@ com\fractalhive\workflowcore\workitem\dto\WorkflowProgressResponse$ProgressSumma
 com\fractalhive\workflowcore\workitem\dto\WorkflowProgressResponse$WorkflowInstanceInfo$WorkflowInstanceInfoBuilder.class
 com\fractalhive\workflowcore\workitem\statemachine\action\ArchiveWorkItemAction.class
 com\fractalhive\workflowcore\workitem\dto\WorkItemVersionResponse$WorkItemVersionResponseBuilder.class
+com\fractalhive\workflowcore\common\dto\PaginatedResponse.class
 com\fractalhive\workflowcore\workflow\dto\WorkflowStartRequest$WorkflowStartRequestBuilder.class
 com\fractalhive\workflowcore\workflow\statemachine\action\CompleteStepAction.class
 com\fractalhive\workflowcore\workflow\dto\WorkflowDefinitionResponse$ApproverResponse$ApproverResponseBuilder.class
@@ -18,6 +19,7 @@ com\fractalhive\workflowcore\workflow\dto\WorkflowStartRequest.class
 com\fractalhive\workflowcore\taskmanagement\dto\TaskResponse.class
 com\fractalhive\workflowcore\workflow\dto\ApproverRequest$ApproverRequestBuilder.class
 com\fractalhive\workflowcore\workitem\service\WorkItemServiceImpl.class
+com\fractalhive\workflowcore\common\dto\PaginatedResponse$PaginatedResponseBuilder.class
 com\fractalhive\workflowcore\workflow\statemachine\action\CompleteWorkflowAction.class
 com\fractalhive\workflowcore\approval\dto\ApprovalTaskCreateRequest.class
 com\fractalhive\workflowcore\taskmanagement\dto\ApprovalDecisionResponse.class
@@ -95,6 +97,7 @@ com\fractalhive\workflowcore\workflow\dto\WorkflowDefinitionResponse$StepDefinit
 com\fractalhive\workflowcore\config\WorkflowCoreAutoConfiguration.class
 com\fractalhive\workflowcore\taskmanagement\dto\TaskRejectRequest.class
 com\fractalhive\workflowcore\workitem\dto\WorkItemResponse.class
+com\fractalhive\workflowcore\approval\repository\CustomApprovalTaskRepository.class
 com\fractalhive\workflowcore\workitem\dto\WorkflowProgressResponse$WorkflowProgressResponseBuilder.class
 com\fractalhive\workflowcore\taskmanagement\service\TaskManagementServiceImpl$1.class
 com\fractalhive\workflowcore\workflow\enums\WorkflowStatus.class
@@ -108,6 +111,7 @@ com\fractalhive\workflowcore\common\entity\BaseEntity.class
 com\fractalhive\workflowcore\workitem\service\WorkItemService.class
 com\fractalhive\workflowcore\taskmanagement\dto\TaskCommentRequest$TaskCommentRequestBuilder.class
 com\fractalhive\workflowcore\taskmanagement\dto\ApprovalCommentResponse$ApprovalCommentResponseBuilder.class
+com\fractalhive\workflowcore\taskmanagement\dto\TaskSearchRequest.class
 com\fractalhive\workflowcore\workitem\controller\WorkItemController$WorkItemCreateResponse.class
 com\fractalhive\workflowcore\workflow\repository\WorkflowDefinitionRepository.class
 com\fractalhive\workflowcore\taskmanagement\dto\TaskResponse$StepInstanceInfo$StepInstanceInfoBuilder.class
@@ -142,6 +146,7 @@ com\fractalhive\workflowcore\taskmanagement\service\TaskManagementService.class
 com\fractalhive\workflowcore\workitem\statemachine\action\ApproveWorkItemAction.class
 com\fractalhive\workflowcore\workitem\dto\WorkItemCreateRequest.class
 com\fractalhive\workflowcore\taskmanagement\dto\ApprovalCommentResponse.class
+com\fractalhive\workflowcore\taskmanagement\dto\TaskSearchRequest$TaskSearchRequestBuilder.class
 com\fractalhive\workflowcore\workitem\statemachine\action\SendToReworkAction.class
 com\fractalhive\workflowcore\workitem\statemachine\action\StartReviewAction.class
 com\fractalhive\workflowcore\common\DefaultExceptionHandler.class

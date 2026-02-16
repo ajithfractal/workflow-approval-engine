@@ -8,10 +8,15 @@ import com.fractalhive.workflowcore.approval.enums.TaskStatus;
 import com.fractalhive.workflowcore.approval.repository.ApprovalCommentRepository;
 import com.fractalhive.workflowcore.approval.repository.ApprovalDecisionRepository;
 import com.fractalhive.workflowcore.approval.repository.ApprovalTaskRepository;
+import com.fractalhive.workflowcore.approval.repository.CustomApprovalTaskRepository;
+import com.fractalhive.workflowcore.common.dto.PaginatedResponse;
 import com.fractalhive.workflowcore.taskmanagement.dto.ApprovalCommentResponse;
 import com.fractalhive.workflowcore.taskmanagement.dto.ApprovalDecisionResponse;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskReassignRequest;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskResponse;
+import com.fractalhive.workflowcore.taskmanagement.dto.TaskSearchRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import com.fractalhive.workflowcore.taskmanagement.resolver.ApproverResolver;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowDefinition;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowInstance;
@@ -59,6 +64,7 @@ public class TaskManagementServiceImpl implements TaskManagementService {
     private final WorkflowDefinitionRepository workflowDefinitionRepository;
     private final WorkItemRepository workItemRepository;
     private final ApproverResolver approverResolver;
+    private final CustomApprovalTaskRepository customApprovalTaskRepository;
 
     public TaskManagementServiceImpl(
             ApprovalTaskRepository approvalTaskRepository,
@@ -70,6 +76,7 @@ public class TaskManagementServiceImpl implements TaskManagementService {
             WorkflowInstanceRepository workflowInstanceRepository,
             WorkflowDefinitionRepository workflowDefinitionRepository,
             WorkItemRepository workItemRepository,
+            CustomApprovalTaskRepository customApprovalTaskRepository,
             @Autowired(required = false) ApproverResolver approverResolver) {
         this.approvalTaskRepository = approvalTaskRepository;
         this.approvalCommentRepository = approvalCommentRepository;
@@ -81,6 +88,7 @@ public class TaskManagementServiceImpl implements TaskManagementService {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
         this.workItemRepository = workItemRepository;
         this.approverResolver = approverResolver;
+        this.customApprovalTaskRepository = customApprovalTaskRepository;
     }
 
     @Override
@@ -353,5 +361,29 @@ public class TaskManagementServiceImpl implements TaskManagementService {
             return null;
         }
         return Timestamp.from(Instant.now().plusSeconds(slaHours * 3600L));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PaginatedResponse<TaskResponse> searchTasks(TaskSearchRequest request, Pageable pageable) {
+        logger.debug("Searching tasks with filters: approverId={}, status={}, search={}, startTime={}, endTime={}, timeCheckIn={}",
+                request.getApproverId(), request.getStatus(), request.getSearch(),
+                request.getStartTime(), request.getEndTime(), request.getTimeCheckIn());
+
+        Page<ApprovalTask> taskPage = customApprovalTaskRepository.searchTasks(request, pageable);
+
+        List<TaskResponse> taskResponses = taskPage.getContent().stream()
+                .map(this::buildTaskResponse)
+                .collect(Collectors.toList());
+
+        return PaginatedResponse.<TaskResponse>builder()
+                .content(taskResponses)
+                .page(taskPage.getNumber())
+                .size(taskPage.getSize())
+                .totalElements(taskPage.getTotalElements())
+                .totalPages(taskPage.getTotalPages())
+                .hasNext(taskPage.hasNext())
+                .hasPrevious(taskPage.hasPrevious())
+                .build();
     }
 }

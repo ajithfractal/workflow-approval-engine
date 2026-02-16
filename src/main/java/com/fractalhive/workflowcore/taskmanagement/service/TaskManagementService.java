@@ -2,9 +2,12 @@ package com.fractalhive.workflowcore.taskmanagement.service;
 
 import com.fractalhive.workflowcore.approval.dto.ApprovalTaskCreateRequest;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
+import com.fractalhive.workflowcore.common.dto.PaginatedResponse;
 import com.fractalhive.workflowcore.taskmanagement.dto.ApprovalCommentResponse;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskReassignRequest;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskResponse;
+import com.fractalhive.workflowcore.taskmanagement.dto.TaskSearchRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.UUID;
@@ -78,4 +81,13 @@ public interface TaskManagementService {
      * @return updated task details
      */
     TaskResponse reassignTask(UUID taskId, TaskReassignRequest request, String userId);
+
+    /**
+     * Searches approval tasks with filters, pagination, and sorting.
+     *
+     * @param request  the search request with filter criteria
+     * @param pageable pagination and sorting information
+     * @return paginated results of task responses
+     */
+    PaginatedResponse<TaskResponse> searchTasks(TaskSearchRequest request, Pageable pageable);
 }

@@ -13,7 +13,8 @@ import java.util.UUID;
  * Repository for ApprovalTask entities.
  */
 @Repository
-public interface ApprovalTaskRepository extends JpaRepository<ApprovalTask, UUID>, JpaSpecificationExecutor<ApprovalTask> {
+public interface ApprovalTaskRepository extends JpaRepository<ApprovalTask, UUID>, 
+        JpaSpecificationExecutor<ApprovalTask> {
 
     /**
      * Find all approval tasks for a step instance.

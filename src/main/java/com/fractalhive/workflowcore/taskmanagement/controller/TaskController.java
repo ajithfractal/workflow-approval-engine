@@ -3,6 +3,7 @@ package com.fractalhive.workflowcore.taskmanagement.controller;
 import com.fractalhive.workflowcore.approval.enums.DecisionType;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
 import com.fractalhive.workflowcore.approval.service.ApprovalTaskStateMachineService;
+import com.fractalhive.workflowcore.common.dto.PaginatedResponse;
 import com.fractalhive.workflowcore.taskmanagement.dto.*;
 import com.fractalhive.workflowcore.taskmanagement.service.TaskManagementService;
 import com.fractalhive.workflowcore.workflow.service.WorkflowOrchestratorService;
@@ -14,6 +15,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -241,6 +245,43 @@ public class TaskController {
             @Valid @RequestBody TaskReassignRequest request) {
         TaskResponse task = taskManagementService.reassignTask(taskId, request, userId);
         return ResponseEntity.ok(task);
+    }
+
+    /**
+     * Searches approval tasks with filters, pagination, and sorting.
+     *
+     * @param request        the search request with filter criteria
+     * @param page           page number (default: 0)
+     * @param size           page size (default: 10)
+     * @param sortBy         field name to sort by (default: createdAt)
+     * @param sortDirection  sort direction ASC or DESC (default: DESC)
+     * @return paginated results of tasks
+     */
+    @PostMapping("/search")
+    @Operation(
+            summary = "Search tasks with filters",
+            description = "Searches approval tasks with advanced filters, pagination, and sorting. Supports filtering by approverId, status, search text, and time ranges on dueAt or createdAt fields."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully retrieved tasks",
+                    content = @Content(schema = @Schema(implementation = PaginatedResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request parameters")
+    })
+    public ResponseEntity<PaginatedResponse<TaskResponse>> searchTasks(
+            @Parameter(description = "Search request with filter criteria")
+            @Valid @RequestBody TaskSearchRequest request,
+            @Parameter(description = "Page number (0-indexed)", example = "0")
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size", example = "10")
+            @RequestParam(defaultValue = "10") int size,
+            @Parameter(description = "Field name to sort by", example = "createdAt")
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @Parameter(description = "Sort direction (ASC or DESC)", example = "DESC")
+            @RequestParam(defaultValue = "DESC") String sortDirection) {
+        Sort.Direction direction = Sort.Direction.fromString(sortDirection);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        PaginatedResponse<TaskResponse> result = taskManagementService.searchTasks(request, pageable);
+        return ResponseEntity.ok(result);
     }
 
 }
