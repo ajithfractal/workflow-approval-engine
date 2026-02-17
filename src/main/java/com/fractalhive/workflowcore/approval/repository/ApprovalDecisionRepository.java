@@ -33,12 +33,4 @@ public interface ApprovalDecisionRepository extends JpaRepository<ApprovalDecisi
      */
     @Query("SELECT ad FROM ApprovalDecision ad WHERE ad.approvalTask.stepInstanceId = :stepInstanceId")
     List<ApprovalDecision> findByStepInstanceId(@Param("stepInstanceId") UUID stepInstanceId);
-
-    /**
-     * Find decisions by decision type.
-     *
-     * @param decision the decision type
-     * @return list of approval decisions
-     */
-    List<ApprovalDecision> findByDecision(DecisionType decision);
 }

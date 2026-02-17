@@ -120,7 +120,7 @@ public class WorkItemController {
     }
 
     /**
-     * Submits a work item for approval.
+     * Submits a work item for approval (with workItemId in path).
      *
      * @param workItemId  the work item ID
      * @param request     the submission request
@@ -130,7 +130,7 @@ public class WorkItemController {
     @PostMapping("/{workItemId}/submit")
     @Operation(
             summary = "Submit work item for approval",
-            description = "Submits a work item to start the approval workflow process"
+            description = "Submits an existing work item to start the approval workflow process"
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Work item submitted successfully",
@@ -141,11 +141,41 @@ public class WorkItemController {
     public ResponseEntity<WorkItemSubmitResponse> submitWorkItem(
             @Parameter(description = "The work item ID", required = true)
             @PathVariable UUID workItemId,
-            @Parameter(description = "Submission request with workflow ID")
+            @Parameter(description = "Submission request with content reference and variables")
             @Valid @RequestBody WorkItemSubmitRequest request,
             @Parameter(description = "User ID submitting the work item", required = true, example = "user123")
             @RequestParam String submittedBy) {
         UUID versionId = workItemService.submitWorkItem(workItemId, request, submittedBy);
+        return ResponseEntity.ok(WorkItemSubmitResponse.builder().versionId(versionId).build());
+    }
+
+    /**
+     * Submits a work item for approval (convenience endpoint).
+     * If workItemId is provided in request body, submits existing work item.
+     * If workItemId is not provided but type is provided, creates new work item and submits it.
+     *
+     * @param request     the submission request (may contain workItemId and/or type)
+     * @param submittedBy the user submitting the work item
+     * @return the created version ID
+     */
+    @PostMapping("/submit")
+    @Operation(
+            summary = "Submit or create and submit work item",
+            description = "Submits a work item for approval. If workItemId is provided, submits existing work item. " +
+                    "If workItemId is not provided but type is provided, creates a new work item and submits it."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Work item submitted successfully",
+                    content = @Content(schema = @Schema(implementation = WorkItemSubmitResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request or work item cannot be submitted"),
+            @ApiResponse(responseCode = "404", description = "Work item not found (if workItemId provided)")
+    })
+    public ResponseEntity<WorkItemSubmitResponse> submitWorkItemConvenience(
+            @Parameter(description = "Submission request with optional workItemId, type, contentRef, and variables")
+            @Valid @RequestBody WorkItemSubmitRequest request,
+            @Parameter(description = "User ID submitting the work item", required = true, example = "user123")
+            @RequestParam String submittedBy) {
+        UUID versionId = workItemService.submitWorkItem(null, request, submittedBy);
         return ResponseEntity.ok(WorkItemSubmitResponse.builder().versionId(versionId).build());
     }
 

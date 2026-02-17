@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.sql.Timestamp;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -25,4 +26,5 @@ public class WorkItemVersionResponse {
     private Timestamp submittedAt;
     private Timestamp createdAt;
     private String createdBy;
+    private Map<String, Object> variables;
 }

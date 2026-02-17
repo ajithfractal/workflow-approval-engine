@@ -15,14 +15,6 @@ import java.util.UUID;
 public interface WorkflowDefinitionRepository extends JpaRepository<WorkflowDefinition, UUID> {
 
     /**
-     * Find workflow definitions by name, active status, ordered by version descending.
-     *
-     * @param name the workflow name
-     * @return list of workflow definitions
-     */
-    List<WorkflowDefinition> findByNameAndIsActiveTrueOrderByVersionDesc(String name);
-
-    /**
      * Find the latest active version of a workflow by name.
      *
      * @param name the workflow name

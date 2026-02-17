@@ -13,6 +13,7 @@ import org.springframework.statemachine.support.DefaultStateMachineContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -24,6 +25,7 @@ public class WorkItemStateMachineService {
 
     private static final String CONTENT_REF_HEADER = "contentRef";
     private static final String SUBMITTED_BY_HEADER = "submittedBy";
+    private static final String VARIABLES_HEADER = "variables";
     private static final String USER_ID_HEADER = "userId";
     private static final String WORK_ITEM_EXTENDED_STATE_KEY = "workItem";
 
@@ -39,15 +41,24 @@ public class WorkItemStateMachineService {
 
     @Transactional
     public void submit(UUID workItemId, String contentRef, String submittedBy) {
+        submit(workItemId, contentRef, submittedBy, null);
+    }
+
+    @Transactional
+    public void submit(UUID workItemId, String contentRef, String submittedBy, Map<String, Object> variables) {
         WorkItem workItem = getWorkItemOrThrow(workItemId);
         StateMachine<WorkItemStatus, WorkItemEvent> stateMachine = createAndRestoreStateMachine(workItem);
 
-        Message<WorkItemEvent> message = MessageBuilder
+        MessageBuilder<WorkItemEvent> messageBuilder = MessageBuilder
                 .withPayload(WorkItemEvent.SUBMIT)
                 .setHeader(CONTENT_REF_HEADER, contentRef)
-                .setHeader(SUBMITTED_BY_HEADER, submittedBy)
-                .build();
+                .setHeader(SUBMITTED_BY_HEADER, submittedBy);
+        
+        if (variables != null) {
+            messageBuilder.setHeader(VARIABLES_HEADER, variables);
+        }
 
+        Message<WorkItemEvent> message = messageBuilder.build();
         stateMachine.sendEvent(message);
         persistState(workItem, stateMachine);
     }

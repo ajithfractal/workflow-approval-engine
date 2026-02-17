@@ -23,19 +23,11 @@ public interface WorkItemVersionRepository extends JpaRepository<WorkItemVersion
     List<WorkItemVersion> findByWorkItemIdOrderByVersionDesc(UUID workItemId);
 
     /**
-     * Find a specific version of a work item.
+     * Find the active version of a work item.
+     * Only one active version exists per work item at any given time.
      *
      * @param workItemId the work item ID
-     * @param version     the version number
-     * @return optional work item version
+     * @return optional active work item version
      */
-    Optional<WorkItemVersion> findByWorkItemIdAndVersion(UUID workItemId, Integer version);
-
-    /**
-     * Find the latest version of a work item.
-     *
-     * @param workItemId the work item ID
-     * @return optional work item version
-     */
-    Optional<WorkItemVersion> findFirstByWorkItemIdOrderByVersionDesc(UUID workItemId);
+    Optional<WorkItemVersion> findFirstByWorkItemIdAndIsActiveTrueOrderByVersionDesc(UUID workItemId);
 }

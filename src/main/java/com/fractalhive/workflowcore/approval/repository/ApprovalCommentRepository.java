@@ -20,12 +20,4 @@ public interface ApprovalCommentRepository extends JpaRepository<ApprovalComment
      * @return list of approval comments
      */
     List<ApprovalComment> findByApprovalTaskIdOrderByCommentedAtAsc(UUID approvalTaskId);
-
-    /**
-     * Find all comments by commenter.
-     *
-     * @param commentedBy the commenter ID
-     * @return list of approval comments
-     */
-    List<ApprovalComment> findByCommentedBy(String commentedBy);
 }

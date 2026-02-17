@@ -5,6 +5,8 @@ import com.fractalhive.workflowcore.workflow.dto.ApproverRequest;
 import com.fractalhive.workflowcore.workflow.dto.StepDefinitionRequest;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionCreateRequest;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionResponse;
+import com.fractalhive.workflowcore.rulesengine.entity.WorkflowStepRule;
+import com.fractalhive.workflowcore.rulesengine.repository.WorkflowStepRuleRepository;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowDefinition;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowStepApprover;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowStepDefinition;
@@ -38,16 +40,19 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
     private final WorkflowStepDefinitionRepository workflowStepDefinitionRepository;
     private final WorkflowStepApproverRepository workflowStepApproverRepository;
     private final WorkflowInstanceRepository workflowInstanceRepository;
+    private final WorkflowStepRuleRepository workflowStepRuleRepository;
 
     public WorkflowDefinitionServiceImpl(
             WorkflowDefinitionRepository workflowDefinitionRepository,
             WorkflowStepDefinitionRepository workflowStepDefinitionRepository,
             WorkflowStepApproverRepository workflowStepApproverRepository,
-            WorkflowInstanceRepository workflowInstanceRepository) {
+            WorkflowInstanceRepository workflowInstanceRepository,
+            WorkflowStepRuleRepository workflowStepRuleRepository) {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
         this.workflowStepDefinitionRepository = workflowStepDefinitionRepository;
         this.workflowStepApproverRepository = workflowStepApproverRepository;
         this.workflowInstanceRepository = workflowInstanceRepository;
+        this.workflowStepRuleRepository = workflowStepRuleRepository;
     }
 
     @Override
@@ -397,6 +402,32 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         step.setUpdatedBy(updatedBy);
 
         workflowStepDefinitionRepository.save(step);
+        
+        // Handle approvers update if provided
+        if (request.getApprovers() != null && !request.getApprovers().isEmpty()) {
+            // Get existing approvers
+            List<WorkflowStepApprover> existingApprovers = workflowStepApproverRepository.findByStepId(stepId);
+            
+            // Validate minApprovals constraint for N_OF_M with new approver count
+            if (request.getApprovalType() == ApprovalType.N_OF_M) {
+                if (request.getMinApprovals() != null && request.getMinApprovals() > request.getApprovers().size()) {
+                    throw new IllegalArgumentException(
+                            String.format("minApprovals (%d) cannot exceed total approvers (%d) for N_OF_M approval type",
+                                    request.getMinApprovals(), request.getApprovers().size()));
+                }
+            }
+            
+            // Delete all existing approvers
+            workflowStepApproverRepository.deleteAll(existingApprovers);
+            
+            // Create new approvers
+            Timestamp now = Timestamp.from(Instant.now());
+            createApproversForStep(stepId, request.getApprovers(), updatedBy, now);
+            
+            logger.info("Updated {} approver(s) for step {} (ID: {})", 
+                    request.getApprovers().size(), request.getStepName(), stepId);
+        }
+        
         logger.info("Updated step definition: {} (ID: {})", request.getStepName(), stepId);
     }
 
@@ -479,7 +510,7 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
     }
 
     /**
-     * Copies all steps and approvers from one workflow definition to another.
+     * Copies all steps, approvers, and rules from one workflow definition to another.
      *
      * @param sourceWorkflowId the source workflow definition ID
      * @param targetWorkflowId the target workflow definition ID
@@ -490,6 +521,8 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
 
         List<WorkflowStepDefinition> originalSteps = workflowStepDefinitionRepository
                 .findByWorkflowIdOrderByStepOrderAsc(sourceWorkflowId);
+
+        int totalRulesCopied = 0;
 
         for (WorkflowStepDefinition originalStep : originalSteps) {
             // Create new step
@@ -515,10 +548,27 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
                 newApprover.setCreatedBy(createdBy);
                 workflowStepApproverRepository.save(newApprover);
             }
+
+            // Copy all rules for this step
+            List<WorkflowStepRule> originalRules = workflowStepRuleRepository.findByStepDefinitionId(originalStep.getId());
+            for (WorkflowStepRule originalRule : originalRules) {
+                WorkflowStepRule newRule = new WorkflowStepRule();
+                newRule.setStepDefinitionId(newStep.getId());
+                newRule.setRuleName(originalRule.getRuleName());
+                newRule.setRuleType(originalRule.getRuleType());
+                newRule.setRuleExpression(originalRule.getRuleExpression());
+                newRule.setPriority(originalRule.getPriority());
+                newRule.setIsActive(originalRule.getIsActive());
+                newRule.setDescription(originalRule.getDescription());
+                newRule.setCreatedAt(now);
+                newRule.setCreatedBy(createdBy);
+                workflowStepRuleRepository.save(newRule);
+                totalRulesCopied++;
+            }
         }
 
-        logger.info("Copied {} step(s) and their approvers from workflow {} to workflow {}",
-                originalSteps.size(), sourceWorkflowId, targetWorkflowId);
+        logger.info("Copied {} step(s), their approvers, and {} rule(s) from workflow {} to workflow {}",
+                originalSteps.size(), totalRulesCopied, sourceWorkflowId, targetWorkflowId);
     }
 
     private WorkflowDefinitionResponse toResponse(WorkflowDefinition workflow) {

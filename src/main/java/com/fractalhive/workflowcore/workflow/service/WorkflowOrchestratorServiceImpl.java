@@ -1,9 +1,17 @@
 package com.fractalhive.workflowcore.workflow.service;
 
+import com.fractalhive.workflowcore.approval.entity.ApprovalTask;
 import com.fractalhive.workflowcore.approval.enums.DecisionType;
 import com.fractalhive.workflowcore.approval.enums.RuleEvaluationResult;
+import com.fractalhive.workflowcore.approval.enums.TaskStatus;
+import com.fractalhive.workflowcore.approval.repository.ApprovalTaskRepository;
 import com.fractalhive.workflowcore.approval.service.ApprovalRuleEvaluator;
 import com.fractalhive.workflowcore.approval.service.ApprovalTaskStateMachineService;
+import com.fractalhive.workflowcore.rulesengine.dto.RuleContext;
+import com.fractalhive.workflowcore.rulesengine.dto.RuleExecutionResult;
+import com.fractalhive.workflowcore.rulesengine.enums.RuleType;
+import com.fractalhive.workflowcore.rulesengine.service.RuleContextBuilder;
+import com.fractalhive.workflowcore.rulesengine.service.RuleEngineService;
 import com.fractalhive.workflowcore.taskmanagement.dto.TaskResponse;
 import com.fractalhive.workflowcore.taskmanagement.service.TaskManagementService;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionResponse;
@@ -51,6 +59,9 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
     private final TaskManagementService taskManagementService;
     private final ApprovalTaskStateMachineService approvalTaskSM;
     private final ApprovalRuleEvaluator ruleEvaluator;
+    private final RuleEngineService ruleEngineService;
+    private final RuleContextBuilder ruleContextBuilder;
+    private final ApprovalTaskRepository approvalTaskRepository;
 
     public WorkflowOrchestratorServiceImpl(
             WorkflowDefinitionService workflowDefinitionService,
@@ -63,7 +74,10 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
             WorkItemStateMachineService workItemSM,
             TaskManagementService taskManagementService,
             ApprovalTaskStateMachineService approvalTaskSM,
-            ApprovalRuleEvaluator ruleEvaluator) {
+            ApprovalRuleEvaluator ruleEvaluator,
+            RuleEngineService ruleEngineService,
+            RuleContextBuilder ruleContextBuilder,
+            ApprovalTaskRepository approvalTaskRepository) {
         this.workflowDefinitionService = workflowDefinitionService;
         this.workItemRepository = workItemRepository;
         this.workflowInstanceRepository = workflowInstanceRepository;
@@ -75,6 +89,9 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
         this.taskManagementService = taskManagementService;
         this.approvalTaskSM = approvalTaskSM;
         this.ruleEvaluator = ruleEvaluator;
+        this.ruleEngineService = ruleEngineService;
+        this.ruleContextBuilder = ruleContextBuilder;
+        this.approvalTaskRepository = approvalTaskRepository;
     }
 
     @Override
@@ -153,6 +170,9 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
                 List<UUID> taskIds = taskManagementService.createTasksForStep(firstStep.getId(), userId);
                 logger.info("Started parallel step: {} (order: 1) and created {} tasks",
                         firstStep.getId(), taskIds.size());
+                
+                // Evaluate auto-approve rules after task creation
+                evaluateAndApplyAutoApproveRules(firstStep.getId(), userId);
             }
             logger.info("Started {} parallel steps for order 1", firstOrderSteps.size());
         }
@@ -177,6 +197,34 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
         // Record the approval/rejection decision
         if (decision == DecisionType.APPROVED) {
             approvalTaskSM.approve(taskId, userId, comments);
+            
+            // Check for auto-approve rules
+            try {
+                WorkflowStepInstance stepInstance = stepInstanceRepository.findById(stepInstanceId)
+                        .orElseThrow(() -> new IllegalStateException("Step instance not found: " + stepInstanceId));
+                
+                RuleContext context = ruleContextBuilder.buildForStepInstance(stepInstanceId);
+                RuleExecutionResult ruleResult = ruleEngineService.evaluateRules(
+                        stepInstance.getStepId(),
+                        RuleType.AUTO_APPROVE,
+                        context);
+                
+                if (ruleResult.getRuleMatched() && Boolean.TRUE.equals(ruleResult.getShouldAutoApprove())) {
+                    logger.info("Auto-approve rule matched, auto-approving remaining tasks for step: {}", stepInstanceId);
+                    // Auto-approve remaining pending tasks
+                    List<ApprovalTask> pendingTasks = approvalTaskRepository
+                            .findByStepInstanceIdAndStatus(stepInstanceId, TaskStatus.PENDING);
+                    
+                    for (ApprovalTask pendingTask : pendingTasks) {
+                        if (!pendingTask.getId().equals(taskId)) { // Don't auto-approve the task that triggered this
+                            approvalTaskSM.approve(pendingTask.getId(), userId, "Auto-approved by rule engine");
+                            logger.info("Auto-approved task: {}", pendingTask.getId());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Error evaluating auto-approve rules: {}", e.getMessage());
+            }
         } else if (decision == DecisionType.REJECTED) {
             approvalTaskSM.reject(taskId, userId, comments);
         } else {
@@ -301,6 +349,9 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
                 List<UUID> taskIds = taskManagementService.createTasksForStep(nextStep.getId(), userId);
                 logger.info("Started next step: {} (order: {}) and created {} tasks",
                         nextStep.getId(), nextOrder, taskIds.size());
+                
+                // Evaluate auto-approve rules after task creation
+                evaluateAndApplyAutoApproveRules(nextStep.getId(), userId);
             }
             logger.info("Started {} parallel steps for order {}", nextSteps.size(), nextOrder);
         }
@@ -332,13 +383,13 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
     private void handleStepRejection(UUID stepInstanceId, String userId) {
         logger.info("Step rejected: {}", stepInstanceId);
 
-        // Fail the current step
-        stepInstanceSM.fail(stepInstanceId, userId, "Step rejected by approver");
-
-        // Get the workflow instance ID
+        // Get the step instance
         WorkflowStepInstance stepInstance = stepInstanceRepository.findById(stepInstanceId)
                 .orElseThrow(() -> new IllegalStateException("Step instance not found: " + stepInstanceId));
         UUID workflowInstanceId = stepInstance.getWorkflowInstanceId();
+
+        // Fail the current step
+        stepInstanceSM.fail(stepInstanceId, userId, "Step rejected by approver");
 
         // Cancel all pending tasks in remaining steps (future steps)
         List<WorkflowStepInstance> remaining = stepInstanceRepository
@@ -355,5 +406,60 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
                 .orElseThrow(() -> new IllegalStateException("Workflow instance not found: " + workflowInstanceId));
         workItemSM.reject(workflowInstance.getWorkItemId(), userId);
         logger.info("Workflow failed and work item rejected. Work item ID: {}", workflowInstance.getWorkItemId());
+    }
+
+    /**
+     * Evaluates auto-approve rules for a step instance and auto-approves all tasks if rule matches.
+     * This is called right after tasks are created for a step.
+     *
+     * @param stepInstanceId the step instance ID
+     * @param userId         the user ID (system user for auto-approval)
+     */
+    private void evaluateAndApplyAutoApproveRules(UUID stepInstanceId, String userId) {
+        try {
+            WorkflowStepInstance stepInstance = stepInstanceRepository.findById(stepInstanceId)
+                    .orElseThrow(() -> new IllegalStateException("Step instance not found: " + stepInstanceId));
+
+            // Build rule context for evaluation
+            RuleContext context = ruleContextBuilder.buildForStepInstance(stepInstanceId);
+            
+            // Evaluate auto-approve rules
+            RuleExecutionResult ruleResult = ruleEngineService.evaluateRules(
+                    stepInstance.getStepId(),
+                    RuleType.AUTO_APPROVE,
+                    context);
+
+            if (ruleResult.getRuleMatched() && Boolean.TRUE.equals(ruleResult.getShouldAutoApprove())) {
+                logger.info("Auto-approve rule matched for step: {}, auto-approving all tasks", stepInstanceId);
+                
+                // Get all pending tasks for this step
+                List<ApprovalTask> pendingTasks = approvalTaskRepository
+                        .findByStepInstanceIdAndStatus(stepInstanceId, TaskStatus.PENDING);
+
+                if (pendingTasks.isEmpty()) {
+                    logger.debug("No pending tasks to auto-approve for step: {}", stepInstanceId);
+                    return;
+                }
+
+                // Auto-approve all pending tasks
+                for (ApprovalTask pendingTask : pendingTasks) {
+                    approvalTaskSM.approve(pendingTask.getId(), userId, "Auto-approved by rule engine");
+                    logger.info("Auto-approved task: {} for step: {}", pendingTask.getId(), stepInstanceId);
+                }
+
+                // After auto-approving all tasks, evaluate step completion
+                // This will trigger the step completion logic and move to next steps
+                RuleEvaluationResult evaluationResult = ruleEvaluator.evaluate(stepInstanceId);
+                if (evaluationResult == RuleEvaluationResult.COMPLETE) {
+                    logger.info("Step {} completed after auto-approval, handling step completion", stepInstanceId);
+                    handleStepCompletion(stepInstanceId, userId);
+                }
+            } else {
+                logger.debug("No auto-approve rule matched for step: {}", stepInstanceId);
+            }
+        } catch (Exception e) {
+            logger.warn("Error evaluating auto-approve rules for step {}: {}", stepInstanceId, e.getMessage(), e);
+            // Don't throw exception - allow workflow to continue even if rule evaluation fails
+        }
     }
 }

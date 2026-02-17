@@ -27,9 +27,11 @@ public interface WorkItemService {
     /**
      * Submits a work item using state machine (DRAFT → SUBMITTED).
      * Creates a new version with the provided content reference.
+     * If workItemId is null and request contains workItemId, uses that.
+     * If workItemId is null and request contains type, creates a new WorkItem first.
      *
-     * @param workItemId  the work item ID
-     * @param request     the submission request
+     * @param workItemId  the work item ID (optional - can be in request body instead)
+     * @param request     the submission request (may contain workItemId and type)
      * @param submittedBy the user submitting the work item
      * @return the ID of the created version
      */

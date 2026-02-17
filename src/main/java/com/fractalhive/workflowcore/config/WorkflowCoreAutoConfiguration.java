@@ -15,6 +15,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
     "com.fractalhive.workflowcore.approval",
     "com.fractalhive.workflowcore.workitem",
     "com.fractalhive.workflowcore.taskmanagement",
+    "com.fractalhive.workflowcore.rulesengine",
     "com.fractalhive.workflowcore.common",
     "com.fractalhive.workflowcore.config"
 })
@@ -22,12 +23,14 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
     "com.fractalhive.workflowcore.workflow.entity",
     "com.fractalhive.workflowcore.approval.entity",
     "com.fractalhive.workflowcore.workitem.entity",
+    "com.fractalhive.workflowcore.rulesengine.entity",
     "com.fractalhive.workflowcore.common.entity"
 })
 @EnableJpaRepositories(basePackages = {
     "com.fractalhive.workflowcore.workflow.repository",
     "com.fractalhive.workflowcore.approval.repository",
-    "com.fractalhive.workflowcore.workitem.repository"
+    "com.fractalhive.workflowcore.workitem.repository",
+    "com.fractalhive.workflowcore.rulesengine.repository"
 })
 public class WorkflowCoreAutoConfiguration {
 }

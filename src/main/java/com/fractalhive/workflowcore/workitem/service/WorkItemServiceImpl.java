@@ -95,16 +95,36 @@ public class WorkItemServiceImpl implements WorkItemService {
     @Override
     @Transactional
     public UUID submitWorkItem(UUID workItemId, WorkItemSubmitRequest request, String submittedBy) {
-        // Verify work item exists
-        workItemRepository.findById(workItemId)
-                .orElseThrow(() -> new IllegalArgumentException("Work item not found: " + workItemId));
+
+        // If workItemId is not provided in path, check if it's in request body
+        if (workItemId == null && request.getWorkItemId() != null) {
+        	workItemId = request.getWorkItemId();
+        }
+
+        // If still no workItemId, create a new WorkItem
+        if (workItemId == null) {
+            if (request.getType() == null || request.getType().isBlank()) {
+                throw new IllegalArgumentException("Work item type is required when creating a new work item");
+            }
+            
+            logger.info("Creating new work item with type: {}", request.getType());
+            WorkItemCreateRequest createRequest = WorkItemCreateRequest.builder()
+                    .type(request.getType())
+                    .build();
+            workItemId = createWorkItem(createRequest, submittedBy);
+            logger.info("Created work item: {} (ID: {})", request.getType(), workItemId);
+        } else {
+            // Verify work item exists
+            workItemRepository.findById(workItemId)
+                    .orElseThrow(() -> new IllegalArgumentException("Work item not found: "));
+        }
 
         // Use state machine to submit (creates version and transitions to SUBMITTED)
-        workItemStateMachineService.submit(workItemId, request.getContentRef(), submittedBy);
+        workItemStateMachineService.submit(workItemId, request.getContentRef(), submittedBy, request.getVariables());
 
-        // Find the version that was just created
+        // Find the active version that was just created
         Optional<WorkItemVersion> latestVersion = workItemVersionRepository
-                .findFirstByWorkItemIdOrderByVersionDesc(workItemId);
+                .findFirstByWorkItemIdAndIsActiveTrueOrderByVersionDesc(workItemId);
 
         if (latestVersion.isPresent()) {
             logger.info("Submitted work item: {} (Version: {})", workItemId, latestVersion.get().getVersion());
@@ -120,6 +140,14 @@ public class WorkItemServiceImpl implements WorkItemService {
         WorkItem workItem = workItemRepository.findById(workItemId)
                 .orElseThrow(() -> new IllegalArgumentException("Work item not found: " + workItemId));
 
+        // Inactivate all existing versions for this work item
+        List<WorkItemVersion> existingVersions = workItemVersionRepository
+                .findByWorkItemIdOrderByVersionDesc(workItemId);
+        if (!existingVersions.isEmpty()) {
+            existingVersions.forEach(v -> v.setIsActive(false));
+            workItemVersionRepository.saveAll(existingVersions);
+        }
+
         // Increment version
         int newVersion = workItem.getCurrentVersion() + 1;
         workItem.setCurrentVersion(newVersion);
@@ -130,6 +158,7 @@ public class WorkItemServiceImpl implements WorkItemService {
         version.setWorkItemId(workItemId);
         version.setVersion(newVersion);
         version.setContentRef(contentRef);
+        version.setIsActive(true); // New version is always active
 
         Timestamp now = Timestamp.from(Instant.now());
         version.setCreatedAt(now);
@@ -147,7 +176,7 @@ public class WorkItemServiceImpl implements WorkItemService {
                 .orElseThrow(() -> new IllegalArgumentException("Work item not found: " + workItemId));
 
         Optional<WorkItemVersion> latestVersion = workItemVersionRepository
-                .findFirstByWorkItemIdOrderByVersionDesc(workItemId);
+                .findFirstByWorkItemIdAndIsActiveTrueOrderByVersionDesc(workItemId);
 
         List<WorkItemVersion> versions = workItemVersionRepository
                 .findByWorkItemIdOrderByVersionDesc(workItemId);
@@ -312,7 +341,7 @@ public class WorkItemServiceImpl implements WorkItemService {
         return workItems.stream()
                 .map(workItem -> {
                     Optional<WorkItemVersion> latestVersion = workItemVersionRepository
-                            .findFirstByWorkItemIdOrderByVersionDesc(workItem.getId());
+                            .findFirstByWorkItemIdAndIsActiveTrueOrderByVersionDesc(workItem.getId());
 
                     List<WorkItemVersion> versions = workItemVersionRepository
                             .findByWorkItemIdOrderByVersionDesc(workItem.getId());
@@ -363,7 +392,7 @@ public class WorkItemServiceImpl implements WorkItemService {
         return workItems.stream()
                 .map(workItem -> {
                     Optional<WorkItemVersion> latestVersion = workItemVersionRepository
-                            .findFirstByWorkItemIdOrderByVersionDesc(workItem.getId());
+                            .findFirstByWorkItemIdAndIsActiveTrueOrderByVersionDesc(workItem.getId());
 
                     List<WorkItemVersion> versions = workItemVersionRepository
                             .findByWorkItemIdOrderByVersionDesc(workItem.getId());
@@ -401,6 +430,7 @@ public class WorkItemServiceImpl implements WorkItemService {
                 .submittedAt(version.getSubmittedAt())
                 .createdAt(version.getCreatedAt())
                 .createdBy(version.getCreatedBy())
+                .variables(version.getVariables())
                 .build();
     }
 }
