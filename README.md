@@ -395,6 +395,22 @@ These statuses are managed by state machines and should be transitioned using th
 - **ROLE**: Role name (resolved via `ApproverResolver`)
 - **MANAGER**: Manager chain (resolved via `ApproverResolver`)
 
+### Keycloak Integration
+
+The workflow engine integrates with `fractalhive-spring-boot-starter-keycloak` for authentication:
+
+```xml
+<dependency>
+    <groupId>com.fractalhive</groupId>
+    <artifactId>fractalhive-spring-boot-starter-keycloak</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+**Documentation:**
+- [`docs/KEYCLOAK_DEPENDENCY_CONTRACT.md`](docs/KEYCLOAK_DEPENDENCY_CONTRACT.md) - Complete contract for Keycloak dependency implementation
+- [`docs/KEYCLOAK_ADMIN_CLAIMS.md`](docs/KEYCLOAK_ADMIN_CLAIMS.md) - Admin role configuration
+
 ## Database Schema
 
 All entities use:
