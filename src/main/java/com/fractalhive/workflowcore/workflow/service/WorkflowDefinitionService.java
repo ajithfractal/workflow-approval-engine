@@ -1,6 +1,7 @@
 package com.fractalhive.workflowcore.workflow.service;
 
 import com.fractalhive.workflowcore.workflow.dto.ApproverRequest;
+import com.fractalhive.workflowcore.workflow.dto.StageDefinitionRequest;
 import com.fractalhive.workflowcore.workflow.dto.StepDefinitionRequest;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionCreateRequest;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionResponse;
@@ -23,14 +24,40 @@ public interface WorkflowDefinitionService {
     UUID createWorkflow(WorkflowDefinitionCreateRequest request, String createdBy);
 
     /**
-     * Creates a step definition for a workflow.
+     * Creates a stage definition for a workflow.
      *
      * @param workflowId the workflow ID
-     * @param request    the step definition request
-     * @param createdBy  the user creating the step
+     * @param request    the stage definition request
+     * @param createdBy  the user creating the stage
+     * @return the ID of the created stage definition
+     */
+    UUID createStage(UUID workflowId, StageDefinitionRequest request, String createdBy);
+
+    /**
+     * Updates a stage definition.
+     *
+     * @param stageId   the stage ID
+     * @param request   the stage update request
+     * @param updatedBy the user updating the stage
+     */
+    void updateStage(UUID stageId, StageDefinitionRequest request, String updatedBy);
+
+    /**
+     * Deletes a stage definition.
+     *
+     * @param stageId the stage ID
+     */
+    void deleteStage(UUID stageId);
+
+    /**
+     * Adds a step definition to a stage.
+     *
+     * @param stageId   the stage ID
+     * @param request   the step definition request
+     * @param createdBy the user creating the step
      * @return the ID of the created step definition
      */
-    UUID createStep(UUID workflowId, StepDefinitionRequest request, String createdBy);
+    UUID addStepToStage(UUID stageId, StepDefinitionRequest request, String createdBy);
 
     /**
      * Adds approvers to a workflow step.

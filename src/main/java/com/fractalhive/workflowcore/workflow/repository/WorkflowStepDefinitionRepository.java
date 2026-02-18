@@ -14,10 +14,18 @@ import java.util.UUID;
 public interface WorkflowStepDefinitionRepository extends JpaRepository<WorkflowStepDefinition, UUID> {
 
     /**
-     * Find all step definitions for a workflow, ordered by step order.
+     * Find all step definitions for a stage, ordered by step order.
      *
-     * @param workflowId the workflow ID
+     * @param stageId the stage ID
      * @return list of step definitions
      */
-    List<WorkflowStepDefinition> findByWorkflowIdOrderByStepOrderAsc(UUID workflowId);
+    List<WorkflowStepDefinition> findByStageIdOrderByStepOrderAsc(UUID stageId);
+
+    /**
+     * Find all step definitions for a stage.
+     *
+     * @param stageId the stage ID
+     * @return list of step definitions
+     */
+    List<WorkflowStepDefinition> findByStageId(UUID stageId);
 }

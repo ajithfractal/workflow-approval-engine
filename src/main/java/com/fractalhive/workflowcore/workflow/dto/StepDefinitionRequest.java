@@ -27,6 +27,12 @@ public class StepDefinitionRequest {
     @NotNull(message = "Approval type cannot be null")
     private ApprovalType approvalType;
 
+    /**
+     * Step order within the stage (required).
+     * Steps with the same stepOrder run in parallel.
+     * Steps with different stepOrder run sequentially.
+     */
+    @NotNull(message = "Step order cannot be null")
     @Positive(message = "Step order must be positive")
     private Integer stepOrder;
 

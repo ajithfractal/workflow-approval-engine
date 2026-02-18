@@ -2,17 +2,20 @@ package com.fractalhive.workflowcore.workflow.service;
 
 import com.fractalhive.workflowcore.approval.enums.ApprovalType;
 import com.fractalhive.workflowcore.workflow.dto.ApproverRequest;
+import com.fractalhive.workflowcore.workflow.dto.StageDefinitionRequest;
 import com.fractalhive.workflowcore.workflow.dto.StepDefinitionRequest;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionCreateRequest;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionResponse;
 import com.fractalhive.workflowcore.rulesengine.entity.WorkflowStepRule;
 import com.fractalhive.workflowcore.rulesengine.repository.WorkflowStepRuleRepository;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowDefinition;
+import com.fractalhive.workflowcore.workflow.entity.WorkflowStageDefinition;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowStepApprover;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowStepDefinition;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowInstance;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowDefinitionRepository;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowInstanceRepository;
+import com.fractalhive.workflowcore.workflow.repository.WorkflowStageDefinitionRepository;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowStepApproverRepository;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowStepDefinitionRepository;
 import org.slf4j.Logger;
@@ -37,6 +40,7 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
     private static final Logger logger = LoggerFactory.getLogger(WorkflowDefinitionServiceImpl.class);
 
     private final WorkflowDefinitionRepository workflowDefinitionRepository;
+    private final WorkflowStageDefinitionRepository workflowStageDefinitionRepository;
     private final WorkflowStepDefinitionRepository workflowStepDefinitionRepository;
     private final WorkflowStepApproverRepository workflowStepApproverRepository;
     private final WorkflowInstanceRepository workflowInstanceRepository;
@@ -44,11 +48,13 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
 
     public WorkflowDefinitionServiceImpl(
             WorkflowDefinitionRepository workflowDefinitionRepository,
+            WorkflowStageDefinitionRepository workflowStageDefinitionRepository,
             WorkflowStepDefinitionRepository workflowStepDefinitionRepository,
             WorkflowStepApproverRepository workflowStepApproverRepository,
             WorkflowInstanceRepository workflowInstanceRepository,
             WorkflowStepRuleRepository workflowStepRuleRepository) {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
+        this.workflowStageDefinitionRepository = workflowStageDefinitionRepository;
         this.workflowStepDefinitionRepository = workflowStepDefinitionRepository;
         this.workflowStepApproverRepository = workflowStepApproverRepository;
         this.workflowInstanceRepository = workflowInstanceRepository;
@@ -81,16 +87,16 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowDefinition saved = workflowDefinitionRepository.save(workflow);
         logger.info("Created workflow definition: {} v{} (ID: {})", request.getName(), request.getVersion(), saved.getId());
 
-        // If a previous version exists, copy its steps and approvers to the new version
+        // If a previous version exists, copy its stages, steps and approvers to the new version
         if (previousVersion.isPresent()) {
             UUID previousWorkflowId = previousVersion.get().getId();
-            List<WorkflowStepDefinition> previousSteps = workflowStepDefinitionRepository
-                    .findByWorkflowIdOrderByStepOrderAsc(previousWorkflowId);
+            List<WorkflowStageDefinition> previousStages = workflowStageDefinitionRepository
+                    .findByWorkflowIdOrderByStageOrderAsc(previousWorkflowId);
 
-            if (!previousSteps.isEmpty()) {
-                copyStepsAndApprovers(previousWorkflowId, saved.getId(), createdBy);
-                logger.info("Copied {} step(s) from previous version {} v{} (ID: {}) to new version {} v{} (ID: {})",
-                        previousSteps.size(),
+            if (!previousStages.isEmpty()) {
+                copyStagesStepsAndApprovers(previousWorkflowId, saved.getId(), createdBy);
+                logger.info("Copied {} stage(s) from previous version {} v{} (ID: {}) to new version {} v{} (ID: {})",
+                        previousStages.size(),
                         previousVersion.get().getName(), previousVersion.get().getVersion(), previousWorkflowId,
                         request.getName(), request.getVersion(), saved.getId());
             }
@@ -101,38 +107,116 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
 
     @Override
     @Transactional
-    public UUID createStep(UUID workflowId, StepDefinitionRequest request, String createdBy) {
-        // Verify workflow exists
+    public UUID createStage(UUID workflowId, StageDefinitionRequest request, String createdBy) {
         WorkflowDefinition workflow = workflowDefinitionRepository.findById(workflowId)
                 .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + workflowId));
 
-        // Block modification if workflow instances exist
         checkNoInstancesExist(workflowId, workflow.getName(), workflow.getVersion());
 
-        // Validate minApprovals for N_OF_M approval type
+        if (request.getStepCompletionType() == ApprovalType.N_OF_M) {
+            if (request.getMinStepCompletions() == null || request.getMinStepCompletions() <= 0) {
+                throw new IllegalArgumentException("minStepCompletions must be > 0 for N_OF_M step completion type");
+            }
+        }
+
+        WorkflowStageDefinition stage = new WorkflowStageDefinition();
+        stage.setWorkflowId(workflowId);
+        stage.setStageName(request.getStageName());
+        stage.setStageOrder(request.getStageOrder());
+        stage.setStepCompletionType(request.getStepCompletionType());
+        stage.setMinStepCompletions(request.getMinStepCompletions());
+
+        Timestamp now = Timestamp.from(Instant.now());
+        stage.setCreatedAt(now);
+        stage.setCreatedBy(createdBy);
+
+        WorkflowStageDefinition saved = workflowStageDefinitionRepository.save(stage);
+        logger.info("Created stage definition: {} (ID: {}) for workflow {}", request.getStageName(), saved.getId(), workflowId);
+
+        if (request.getSteps() != null && !request.getSteps().isEmpty()) {
+            for (StepDefinitionRequest stepRequest : request.getSteps()) {
+                addStepToStage(saved.getId(), stepRequest, createdBy);
+            }
+            logger.info("Created {} step(s) for stage {} during stage creation", request.getSteps().size(), saved.getId());
+        }
+
+        return saved.getId();
+    }
+
+    @Override
+    @Transactional
+    public void updateStage(UUID stageId, StageDefinitionRequest request, String updatedBy) {
+        WorkflowStageDefinition stage = workflowStageDefinitionRepository.findById(stageId)
+                .orElseThrow(() -> new IllegalArgumentException("Stage definition not found: " + stageId));
+
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(stage.getWorkflowId())
+                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + stage.getWorkflowId()));
+
+        checkNoInstancesExist(stage.getWorkflowId(), workflow.getName(), workflow.getVersion());
+
+        if (request.getStepCompletionType() == ApprovalType.N_OF_M) {
+            if (request.getMinStepCompletions() == null || request.getMinStepCompletions() <= 0) {
+                throw new IllegalArgumentException("minStepCompletions must be > 0 for N_OF_M step completion type");
+            }
+        }
+
+        stage.setStageName(request.getStageName());
+        stage.setStageOrder(request.getStageOrder());
+        stage.setStepCompletionType(request.getStepCompletionType());
+        stage.setMinStepCompletions(request.getMinStepCompletions());
+        stage.setUpdatedAt(Timestamp.from(Instant.now()));
+        stage.setUpdatedBy(updatedBy);
+
+        workflowStageDefinitionRepository.save(stage);
+        logger.info("Updated stage definition: {} (ID: {})", request.getStageName(), stageId);
+    }
+
+    @Override
+    @Transactional
+    public void deleteStage(UUID stageId) {
+        WorkflowStageDefinition stage = workflowStageDefinitionRepository.findById(stageId)
+                .orElseThrow(() -> new IllegalArgumentException("Stage definition not found: " + stageId));
+
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(stage.getWorkflowId())
+                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + stage.getWorkflowId()));
+
+        checkNoInstancesExist(stage.getWorkflowId(), workflow.getName(), workflow.getVersion());
+
+        List<WorkflowStepDefinition> steps = workflowStepDefinitionRepository.findByStageId(stageId);
+        for (WorkflowStepDefinition step : steps) {
+            List<WorkflowStepApprover> approvers = workflowStepApproverRepository.findByStepId(step.getId());
+            workflowStepApproverRepository.deleteAll(approvers);
+            workflowStepDefinitionRepository.delete(step);
+        }
+
+        workflowStageDefinitionRepository.delete(stage);
+        logger.info("Deleted stage definition: {} (ID: {})", stage.getStageName(), stageId);
+    }
+
+    @Override
+    @Transactional
+    public UUID addStepToStage(UUID stageId, StepDefinitionRequest request, String createdBy) {
+        WorkflowStageDefinition stage = workflowStageDefinitionRepository.findById(stageId)
+                .orElseThrow(() -> new IllegalArgumentException("Stage definition not found: " + stageId));
+
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(stage.getWorkflowId())
+                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + stage.getWorkflowId()));
+
+        checkNoInstancesExist(stage.getWorkflowId(), workflow.getName(), workflow.getVersion());
+
         if (request.getApprovalType() == ApprovalType.N_OF_M) {
             if (request.getMinApprovals() == null || request.getMinApprovals() <= 0) {
                 throw new IllegalArgumentException("minApprovals must be > 0 for N_OF_M approval type");
             }
         }
 
-        // Determine step order
-        // Note: stepOrder is NOT unique - multiple steps can have the same order for parallel execution
-        final Integer stepOrder;
+        // Validate stepOrder is provided
         if (request.getStepOrder() == null) {
-            // Auto-assign step order as next available (highest existing order + 1)
-            List<WorkflowStepDefinition> existingSteps = workflowStepDefinitionRepository
-                    .findByWorkflowIdOrderByStepOrderAsc(workflowId);
-            stepOrder = existingSteps.isEmpty() ? 1 : existingSteps.get(existingSteps.size() - 1).getStepOrder() + 1;
-        } else {
-            // Allow duplicate step orders for parallel execution
-            stepOrder = request.getStepOrder();
+            throw new IllegalArgumentException("stepOrder is required");
         }
 
-        // Validate approvers if provided during step creation
         if (request.getApprovers() != null && !request.getApprovers().isEmpty()) {
             int approverCount = request.getApprovers().size();
-            // Validate minApprovals constraint for N_OF_M
             if (request.getApprovalType() == ApprovalType.N_OF_M) {
                 if (request.getMinApprovals() != null && request.getMinApprovals() > approverCount) {
                     throw new IllegalArgumentException(
@@ -143,9 +227,9 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         }
 
         WorkflowStepDefinition step = new WorkflowStepDefinition();
-        step.setWorkflowId(workflowId);
+        step.setStageId(stageId);
         step.setStepName(request.getStepName());
-        step.setStepOrder(stepOrder);
+        step.setStepOrder(request.getStepOrder());
         step.setApprovalType(request.getApprovalType());
         step.setMinApprovals(request.getMinApprovals());
         step.setSlaHours(request.getSlaHours());
@@ -155,9 +239,8 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         step.setCreatedBy(createdBy);
 
         WorkflowStepDefinition saved = workflowStepDefinitionRepository.save(step);
-        logger.info("Created step definition: {} (ID: {}) for workflow {}", request.getStepName(), saved.getId(), workflowId);
+        logger.info("Created step definition: {} (ID: {}) for stage {}", request.getStepName(), saved.getId(), stageId);
 
-        // Create approvers if provided
         if (request.getApprovers() != null && !request.getApprovers().isEmpty()) {
             List<UUID> approverIds = createApproversForStep(saved.getId(), request.getApprovers(), createdBy, now);
             logger.info("Created {} approver(s) for step {} during step creation", approverIds.size(), saved.getId());
@@ -203,8 +286,14 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowStepDefinition step = workflowStepDefinitionRepository.findById(stepId)
                 .orElseThrow(() -> new IllegalArgumentException("Step definition not found: " + stepId));
 
+        WorkflowStageDefinition stage = workflowStageDefinitionRepository.findById(step.getStageId())
+                .orElseThrow(() -> new IllegalArgumentException("Stage definition not found: " + step.getStageId()));
+
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(stage.getWorkflowId())
+                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + stage.getWorkflowId()));
+
         // Block modification if workflow instances exist
-        checkNoInstancesExistForStep(step.getWorkflowId());
+        checkNoInstancesExist(stage.getWorkflowId(), workflow.getName(), workflow.getVersion());
 
         // Get existing approvers
         List<WorkflowStepApprover> existingApprovers = workflowStepApproverRepository.findByStepId(stepId);
@@ -359,14 +448,18 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowDefinition workflow = workflowDefinitionRepository.findById(workflowId)
                 .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + workflowId));
 
-        // Delete all steps and approvers first
-        List<WorkflowStepDefinition> steps = workflowStepDefinitionRepository
-                .findByWorkflowIdOrderByStepOrderAsc(workflowId);
+        // Delete all stages, steps and approvers first
+        List<WorkflowStageDefinition> stages = workflowStageDefinitionRepository
+                .findByWorkflowIdOrderByStageOrderAsc(workflowId);
 
-        for (WorkflowStepDefinition step : steps) {
-            List<WorkflowStepApprover> approvers = workflowStepApproverRepository.findByStepId(step.getId());
-            workflowStepApproverRepository.deleteAll(approvers);
-            workflowStepDefinitionRepository.delete(step);
+        for (WorkflowStageDefinition stage : stages) {
+            List<WorkflowStepDefinition> steps = workflowStepDefinitionRepository.findByStageId(stage.getId());
+            for (WorkflowStepDefinition step : steps) {
+                List<WorkflowStepApprover> approvers = workflowStepApproverRepository.findByStepId(step.getId());
+                workflowStepApproverRepository.deleteAll(approvers);
+                workflowStepDefinitionRepository.delete(step);
+            }
+            workflowStageDefinitionRepository.delete(stage);
         }
 
         workflowDefinitionRepository.delete(workflow);
@@ -379,8 +472,14 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowStepDefinition step = workflowStepDefinitionRepository.findById(stepId)
                 .orElseThrow(() -> new IllegalArgumentException("Step definition not found: " + stepId));
 
+        WorkflowStageDefinition stage = workflowStageDefinitionRepository.findById(step.getStageId())
+                .orElseThrow(() -> new IllegalArgumentException("Stage definition not found: " + step.getStageId()));
+
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(stage.getWorkflowId())
+                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + stage.getWorkflowId()));
+
         // Block modification if workflow instances exist
-        checkNoInstancesExistForStep(step.getWorkflowId());
+        checkNoInstancesExist(stage.getWorkflowId(), workflow.getName(), workflow.getVersion());
 
         // Validate minApprovals for N_OF_M
         if (request.getApprovalType() == ApprovalType.N_OF_M) {
@@ -389,12 +488,15 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
             }
         }
 
+        // Validate and update stepOrder
+        if (request.getStepOrder() == null) {
+            throw new IllegalArgumentException("stepOrder is required");
+        }
+
         // Note: stepOrder is NOT unique - multiple steps can have the same order for parallel execution
 
         step.setStepName(request.getStepName());
-        if (request.getStepOrder() != null) {
-            step.setStepOrder(request.getStepOrder());
-        }
+        step.setStepOrder(request.getStepOrder());
         step.setApprovalType(request.getApprovalType());
         step.setMinApprovals(request.getMinApprovals());
         step.setSlaHours(request.getSlaHours());
@@ -437,8 +539,14 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowStepDefinition step = workflowStepDefinitionRepository.findById(stepId)
                 .orElseThrow(() -> new IllegalArgumentException("Step definition not found: " + stepId));
 
+        WorkflowStageDefinition stage = workflowStageDefinitionRepository.findById(step.getStageId())
+                .orElseThrow(() -> new IllegalArgumentException("Stage definition not found: " + step.getStageId()));
+
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(stage.getWorkflowId())
+                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + stage.getWorkflowId()));
+
         // Block modification if workflow instances exist
-        checkNoInstancesExistForStep(step.getWorkflowId());
+        checkNoInstancesExist(stage.getWorkflowId(), workflow.getName(), workflow.getVersion());
 
         // Delete all approvers first
         List<WorkflowStepApprover> approvers = workflowStepApproverRepository.findByStepId(stepId);
@@ -458,8 +566,14 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         WorkflowStepDefinition step = workflowStepDefinitionRepository.findById(stepId)
                 .orElseThrow(() -> new IllegalArgumentException("Step definition not found: " + stepId));
 
+        WorkflowStageDefinition stage = workflowStageDefinitionRepository.findById(step.getStageId())
+                .orElseThrow(() -> new IllegalArgumentException("Stage definition not found: " + step.getStageId()));
+
+        WorkflowDefinition workflow = workflowDefinitionRepository.findById(stage.getWorkflowId())
+                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + stage.getWorkflowId()));
+
         // Block modification if workflow instances exist
-        checkNoInstancesExistForStep(step.getWorkflowId());
+        checkNoInstancesExist(stage.getWorkflowId(), workflow.getName(), workflow.getVersion());
 
         // Get remaining approvers after removal
         List<WorkflowStepApprover> remainingApprovers = workflowStepApproverRepository.findByStepId(stepId);
@@ -497,103 +611,127 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         }
     }
 
-    /**
-     * Checks if workflow instances exist for the workflow that owns the given step.
-     * If they do, throws an exception advising to create a new version.
-     *
-     * @param workflowId the workflow definition ID (from the step)
-     */
-    private void checkNoInstancesExistForStep(UUID workflowId) {
-        WorkflowDefinition workflow = workflowDefinitionRepository.findById(workflowId)
-                .orElseThrow(() -> new IllegalArgumentException("Workflow definition not found: " + workflowId));
-        checkNoInstancesExist(workflowId, workflow.getName(), workflow.getVersion());
-    }
 
     /**
-     * Copies all steps, approvers, and rules from one workflow definition to another.
+     * Copies all stages, steps, approvers, and rules from one workflow definition to another.
      *
      * @param sourceWorkflowId the source workflow definition ID
      * @param targetWorkflowId the target workflow definition ID
      * @param createdBy        the user performing the copy
      */
-    private void copyStepsAndApprovers(UUID sourceWorkflowId, UUID targetWorkflowId, String createdBy) {
+    private void copyStagesStepsAndApprovers(UUID sourceWorkflowId, UUID targetWorkflowId, String createdBy) {
         Timestamp now = Timestamp.from(Instant.now());
 
-        List<WorkflowStepDefinition> originalSteps = workflowStepDefinitionRepository
-                .findByWorkflowIdOrderByStepOrderAsc(sourceWorkflowId);
+        List<WorkflowStageDefinition> originalStages = workflowStageDefinitionRepository
+                .findByWorkflowIdOrderByStageOrderAsc(sourceWorkflowId);
 
+        int totalStepsCopied = 0;
         int totalRulesCopied = 0;
 
-        for (WorkflowStepDefinition originalStep : originalSteps) {
-            // Create new step
-            WorkflowStepDefinition newStep = new WorkflowStepDefinition();
-            newStep.setWorkflowId(targetWorkflowId);
-            newStep.setStepName(originalStep.getStepName());
-            newStep.setStepOrder(originalStep.getStepOrder());
-            newStep.setApprovalType(originalStep.getApprovalType());
-            newStep.setMinApprovals(originalStep.getMinApprovals());
-            newStep.setSlaHours(originalStep.getSlaHours());
-            newStep.setCreatedAt(now);
-            newStep.setCreatedBy(createdBy);
-            newStep = workflowStepDefinitionRepository.save(newStep);
+        for (WorkflowStageDefinition originalStage : originalStages) {
+            // Create new stage
+            WorkflowStageDefinition newStage = new WorkflowStageDefinition();
+            newStage.setWorkflowId(targetWorkflowId);
+            newStage.setStageName(originalStage.getStageName());
+            newStage.setStageOrder(originalStage.getStageOrder());
+            newStage.setStepCompletionType(originalStage.getStepCompletionType());
+            newStage.setMinStepCompletions(originalStage.getMinStepCompletions());
+            newStage.setCreatedAt(now);
+            newStage.setCreatedBy(createdBy);
+            newStage = workflowStageDefinitionRepository.save(newStage);
 
-            // Copy all approvers for this step
-            List<WorkflowStepApprover> originalApprovers = workflowStepApproverRepository.findByStepId(originalStep.getId());
-            for (WorkflowStepApprover originalApprover : originalApprovers) {
-                WorkflowStepApprover newApprover = new WorkflowStepApprover();
-                newApprover.setStepId(newStep.getId());
-                newApprover.setApproverType(originalApprover.getApproverType());
-                newApprover.setApproverValue(originalApprover.getApproverValue());
-                newApprover.setCreatedAt(now);
-                newApprover.setCreatedBy(createdBy);
-                workflowStepApproverRepository.save(newApprover);
-            }
+            // Copy all steps for this stage
+            List<WorkflowStepDefinition> originalSteps = workflowStepDefinitionRepository
+                    .findByStageIdOrderByStepOrderAsc(originalStage.getId());
 
-            // Copy all rules for this step
-            List<WorkflowStepRule> originalRules = workflowStepRuleRepository.findByStepDefinitionId(originalStep.getId());
-            for (WorkflowStepRule originalRule : originalRules) {
-                WorkflowStepRule newRule = new WorkflowStepRule();
-                newRule.setStepDefinitionId(newStep.getId());
-                newRule.setRuleName(originalRule.getRuleName());
-                newRule.setRuleType(originalRule.getRuleType());
-                newRule.setRuleExpression(originalRule.getRuleExpression());
-                newRule.setPriority(originalRule.getPriority());
-                newRule.setIsActive(originalRule.getIsActive());
-                newRule.setDescription(originalRule.getDescription());
-                newRule.setCreatedAt(now);
-                newRule.setCreatedBy(createdBy);
-                workflowStepRuleRepository.save(newRule);
-                totalRulesCopied++;
+            for (WorkflowStepDefinition originalStep : originalSteps) {
+                // Create new step
+                WorkflowStepDefinition newStep = new WorkflowStepDefinition();
+                newStep.setStageId(newStage.getId());
+                newStep.setStepName(originalStep.getStepName());
+                newStep.setStepOrder(originalStep.getStepOrder());
+                newStep.setApprovalType(originalStep.getApprovalType());
+                newStep.setMinApprovals(originalStep.getMinApprovals());
+                newStep.setSlaHours(originalStep.getSlaHours());
+                newStep.setCreatedAt(now);
+                newStep.setCreatedBy(createdBy);
+                newStep = workflowStepDefinitionRepository.save(newStep);
+                totalStepsCopied++;
+
+                // Copy all approvers for this step
+                List<WorkflowStepApprover> originalApprovers = workflowStepApproverRepository.findByStepId(originalStep.getId());
+                for (WorkflowStepApprover originalApprover : originalApprovers) {
+                    WorkflowStepApprover newApprover = new WorkflowStepApprover();
+                    newApprover.setStepId(newStep.getId());
+                    newApprover.setApproverType(originalApprover.getApproverType());
+                    newApprover.setApproverValue(originalApprover.getApproverValue());
+                    newApprover.setCreatedAt(now);
+                    newApprover.setCreatedBy(createdBy);
+                    workflowStepApproverRepository.save(newApprover);
+                }
+
+                // Copy all rules for this step
+                List<WorkflowStepRule> originalRules = workflowStepRuleRepository.findByStepDefinitionId(originalStep.getId());
+                for (WorkflowStepRule originalRule : originalRules) {
+                    WorkflowStepRule newRule = new WorkflowStepRule();
+                    newRule.setStepDefinitionId(newStep.getId());
+                    newRule.setRuleName(originalRule.getRuleName());
+                    newRule.setRuleType(originalRule.getRuleType());
+                    newRule.setRuleExpression(originalRule.getRuleExpression());
+                    newRule.setPriority(originalRule.getPriority());
+                    newRule.setIsActive(originalRule.getIsActive());
+                    newRule.setDescription(originalRule.getDescription());
+                    newRule.setCreatedAt(now);
+                    newRule.setCreatedBy(createdBy);
+                    workflowStepRuleRepository.save(newRule);
+                    totalRulesCopied++;
+                }
             }
         }
 
-        logger.info("Copied {} step(s), their approvers, and {} rule(s) from workflow {} to workflow {}",
-                originalSteps.size(), totalRulesCopied, sourceWorkflowId, targetWorkflowId);
+        logger.info("Copied {} stage(s), {} step(s), their approvers, and {} rule(s) from workflow {} to workflow {}",
+                originalStages.size(), totalStepsCopied, totalRulesCopied, sourceWorkflowId, targetWorkflowId);
     }
 
     private WorkflowDefinitionResponse toResponse(WorkflowDefinition workflow) {
-        List<WorkflowStepDefinition> steps = workflowStepDefinitionRepository
-                .findByWorkflowIdOrderByStepOrderAsc(workflow.getId());
+        List<WorkflowStageDefinition> stages = workflowStageDefinitionRepository
+                .findByWorkflowIdOrderByStageOrderAsc(workflow.getId());
 
-        List<WorkflowDefinitionResponse.StepDefinitionResponse> stepResponses = steps.stream()
-                .map(step -> {
-                    List<WorkflowStepApprover> approvers = workflowStepApproverRepository.findByStepId(step.getId());
-                    List<WorkflowDefinitionResponse.ApproverResponse> approverResponses = approvers.stream()
-                            .map(approver -> WorkflowDefinitionResponse.ApproverResponse.builder()
-                                    .approverId(approver.getId())
-                                    .approverType(approver.getApproverType().name())
-                                    .approverValue(approver.getApproverValue())
-                                    .build())
+        List<WorkflowDefinitionResponse.StageDefinitionResponse> stageResponses = stages.stream()
+                .map(stage -> {
+                    List<WorkflowStepDefinition> steps = workflowStepDefinitionRepository
+                            .findByStageIdOrderByStepOrderAsc(stage.getId());
+
+                    List<WorkflowDefinitionResponse.StepDefinitionResponse> stepResponses = steps.stream()
+                            .map(step -> {
+                                List<WorkflowStepApprover> approvers = workflowStepApproverRepository.findByStepId(step.getId());
+                                List<WorkflowDefinitionResponse.ApproverResponse> approverResponses = approvers.stream()
+                                        .map(approver -> WorkflowDefinitionResponse.ApproverResponse.builder()
+                                                .approverId(approver.getId())
+                                                .approverType(approver.getApproverType().name())
+                                                .approverValue(approver.getApproverValue())
+                                                .build())
+                                        .collect(Collectors.toList());
+
+                                return WorkflowDefinitionResponse.StepDefinitionResponse.builder()
+                                        .stepId(step.getId())
+                                        .stepName(step.getStepName())
+                                        .stepOrder(step.getStepOrder())
+                                        .approvalType(step.getApprovalType().name())
+                                        .minApprovals(step.getMinApprovals())
+                                        .slaHours(step.getSlaHours())
+                                        .approvers(approverResponses)
+                                        .build();
+                            })
                             .collect(Collectors.toList());
 
-                    return WorkflowDefinitionResponse.StepDefinitionResponse.builder()
-                            .stepId(step.getId())
-                            .stepName(step.getStepName())
-                            .stepOrder(step.getStepOrder())
-                            .approvalType(step.getApprovalType().name())
-                            .minApprovals(step.getMinApprovals())
-                            .slaHours(step.getSlaHours())
-                            .approvers(approverResponses)
+                    return WorkflowDefinitionResponse.StageDefinitionResponse.builder()
+                            .stageId(stage.getId())
+                            .stageName(stage.getStageName())
+                            .stageOrder(stage.getStageOrder())
+                            .stepCompletionType(stage.getStepCompletionType().name())
+                            .minStepCompletions(stage.getMinStepCompletions())
+                            .steps(stepResponses)
                             .build();
                 })
                 .collect(Collectors.toList());
@@ -603,7 +741,7 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
                 .name(workflow.getName())
                 .version(workflow.getVersion())
                 .isActive(workflow.getIsActive())
-                .steps(stepResponses)
+                .stages(stageResponses)
                 .build();
     }
 }

@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.fractalhive.workflowcore.workflow.dto.ApproverRequest;
 import com.fractalhive.workflowcore.workflow.dto.ApproversCreateResponse;
 import com.fractalhive.workflowcore.workflow.dto.CreateResponse;
+import com.fractalhive.workflowcore.workflow.dto.StageDefinitionRequest;
 import com.fractalhive.workflowcore.workflow.dto.StepDefinitionRequest;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionCreateRequest;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionResponse;
@@ -194,32 +195,117 @@ public class WorkflowDefinitionController {
     }
 
     /**
-     * Adds a step to a workflow definition.
+     * Creates a stage for a workflow definition.
      *
      * @param workflowId the workflow ID
-     * @param request    the step definition request
-     * @param createdBy  the user creating the step
+     * @param request    the stage definition request
+     * @param createdBy  the user creating the stage
+     * @return the created stage ID
+     */
+    @PostMapping("/{workflowId}/stages")
+    @Operation(
+            summary = "Create stage for workflow",
+            description = "Creates a new stage for a workflow definition. Optionally includes steps during creation"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Stage created successfully",
+                    content = @Content(schema = @Schema(implementation = CreateResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request or validation error"),
+            @ApiResponse(responseCode = "404", description = "Workflow not found")
+    })
+    public ResponseEntity<CreateResponse> createStage(
+            @Parameter(description = "The workflow ID", required = true)
+            @PathVariable UUID workflowId,
+            @Parameter(description = "Stage definition request with optional steps")
+            @Valid @RequestBody StageDefinitionRequest request,
+            @Parameter(description = "User ID creating the stage", required = true, example = "admin")
+            @RequestParam String createdBy) {
+        UUID stageId = workflowDefinitionService.createStage(workflowId, request, createdBy);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(CreateResponse.builder()
+                        .id(stageId)
+                        .message("Stage created successfully")
+                        .build());
+    }
+
+    /**
+     * Updates a stage definition.
+     *
+     * @param stageId   the stage ID
+     * @param request   the stage update request
+     * @param updatedBy the user updating the stage
+     * @return no content
+     */
+    @PutMapping("/stages/{stageId}")
+    @Operation(
+            summary = "Update stage definition",
+            description = "Updates an existing stage definition"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Stage updated successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "404", description = "Stage not found")
+    })
+    public ResponseEntity<Void> updateStage(
+            @Parameter(description = "The stage ID", required = true)
+            @PathVariable UUID stageId,
+            @Parameter(description = "Stage update request")
+            @Valid @RequestBody StageDefinitionRequest request,
+            @Parameter(description = "User ID updating the stage", required = true, example = "admin")
+            @RequestParam String updatedBy) {
+        workflowDefinitionService.updateStage(stageId, request, updatedBy);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Deletes a stage definition.
+     *
+     * @param stageId the stage ID
+     * @return no content
+     */
+    @DeleteMapping("/stages/{stageId}")
+    @Operation(
+            summary = "Delete stage definition",
+            description = "Deletes a stage definition and all its steps"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Stage deleted successfully"),
+            @ApiResponse(responseCode = "404", description = "Stage not found")
+    })
+    public ResponseEntity<Void> deleteStage(
+            @Parameter(description = "The stage ID", required = true)
+            @PathVariable UUID stageId) {
+        workflowDefinitionService.deleteStage(stageId);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Adds a step to a stage.
+     *
+     * @param stageId   the stage ID
+     * @param request   the step definition request
+     * @param createdBy the user creating the step
      * @return the created step ID
      */
-    @PostMapping("/{workflowId}/steps")
+    @PostMapping("/stages/{stageId}/steps")
     @Operation(
-            summary = "Add step to workflow",
-            description = "Adds a new step to a workflow definition. Optionally includes approvers during creation"
+            summary = "Add step to stage",
+            description = "Adds a new step to a stage definition. Optionally includes approvers during creation"
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Step created successfully",
                     content = @Content(schema = @Schema(implementation = CreateResponse.class))),
             @ApiResponse(responseCode = "400", description = "Invalid request or validation error"),
-            @ApiResponse(responseCode = "404", description = "Workflow not found")
+            @ApiResponse(responseCode = "404", description = "Stage not found")
     })
-    public ResponseEntity<CreateResponse> addStep(
-            @Parameter(description = "The workflow ID", required = true)
-            @PathVariable UUID workflowId,
+    public ResponseEntity<CreateResponse> addStepToStage(
+            @Parameter(description = "The stage ID", required = true)
+            @PathVariable UUID stageId,
             @Parameter(description = "Step definition request with optional approvers")
             @Valid @RequestBody StepDefinitionRequest request,
             @Parameter(description = "User ID creating the step", required = true, example = "admin")
             @RequestParam String createdBy) {
-        UUID stepId = workflowDefinitionService.createStep(workflowId, request, createdBy);
+        UUID stepId = workflowDefinitionService.addStepToStage(stageId, request, createdBy);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(CreateResponse.builder()
                         .id(stepId)

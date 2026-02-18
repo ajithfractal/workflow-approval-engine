@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Response DTO for workflow definition with steps and approvers.
+ * Response DTO for workflow definition with stages, steps and approvers.
  */
 @Data
 @Builder
@@ -21,7 +21,20 @@ public class WorkflowDefinitionResponse {
     private String name;
     private Integer version;
     private Boolean isActive;
-    private List<StepDefinitionResponse> steps;
+    private List<StageDefinitionResponse> stages;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StageDefinitionResponse {
+        private UUID stageId;
+        private String stageName;
+        private Integer stageOrder;
+        private String stepCompletionType;
+        private Integer minStepCompletions;
+        private List<StepDefinitionResponse> steps;
+    }
 
     @Data
     @Builder

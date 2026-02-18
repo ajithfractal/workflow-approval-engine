@@ -28,9 +28,9 @@ public class WorkflowDefinition extends BaseEntity {
     private Boolean isActive = true;
 
     /**
-     * Optional read-only association to workflow steps.
+     * Optional read-only association to workflow stages.
      * Not used for persistence, only for convenience queries.
      */
     @OneToMany(mappedBy = "workflowDefinition", fetch = FetchType.LAZY)
-    private List<WorkflowStepDefinition> steps;
+    private List<WorkflowStageDefinition> stages;
 }

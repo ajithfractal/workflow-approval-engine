@@ -2,7 +2,6 @@ package com.fractalhive.workflowcore.workflow.entity;
 
 import com.fractalhive.workflowcore.approval.enums.ApprovalType;
 import com.fractalhive.workflowcore.common.entity.BaseEntity;
-
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -11,8 +10,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Represents a step definition within a workflow.
- * Steps define approval rules, SLA, and execution order.
+ * Represents a step definition within a workflow stage.
+ * Steps define approval rules, SLA, and execution order within a stage.
  */
 @Entity
 @Table(name = "workflow_step_definition")
@@ -20,8 +19,8 @@ import java.util.UUID;
 @Setter
 public class WorkflowStepDefinition extends BaseEntity {
 
-    @Column(name = "workflow_id", nullable = false, updatable = false)
-    private UUID workflowId;
+    @Column(name = "stage_id", nullable = false, updatable = false)
+    private UUID stageId;
 
     @Column(name = "step_order", nullable = false)
     private Integer stepOrder;
@@ -40,12 +39,12 @@ public class WorkflowStepDefinition extends BaseEntity {
     private Integer slaHours;
 
     /**
-     * Optional read-only association to parent workflow.
+     * Optional read-only association to parent stage.
      * Not used for persistence, only for convenience queries.
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "workflow_id", insertable = false, updatable = false)
-    private WorkflowDefinition workflowDefinition;
+    @JoinColumn(name = "stage_id", insertable = false, updatable = false)
+    private WorkflowStageDefinition stageDefinition;
 
     /**
      * Optional read-only association to approvers.

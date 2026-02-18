@@ -1,6 +1,7 @@
 package com.fractalhive.workflowcore.workflow.service;
 
 import com.fractalhive.workflowcore.approval.entity.ApprovalTask;
+import com.fractalhive.workflowcore.approval.enums.ApprovalType;
 import com.fractalhive.workflowcore.approval.enums.DecisionType;
 import com.fractalhive.workflowcore.approval.enums.RuleEvaluationResult;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
@@ -16,14 +17,20 @@ import com.fractalhive.workflowcore.taskmanagement.dto.TaskResponse;
 import com.fractalhive.workflowcore.taskmanagement.service.TaskManagementService;
 import com.fractalhive.workflowcore.workflow.dto.WorkflowDefinitionResponse;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowInstance;
+import com.fractalhive.workflowcore.workflow.entity.WorkflowStageDefinition;
+import com.fractalhive.workflowcore.workflow.entity.WorkflowStageInstance;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowStepDefinition;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowStepInstance;
+import com.fractalhive.workflowcore.workflow.enums.StageStatus;
 import com.fractalhive.workflowcore.workflow.enums.StepStatus;
 import com.fractalhive.workflowcore.workflow.enums.WorkflowStatus;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowInstanceRepository;
+import com.fractalhive.workflowcore.workflow.repository.WorkflowStageDefinitionRepository;
+import com.fractalhive.workflowcore.workflow.repository.WorkflowStageInstanceRepository;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowStepDefinitionRepository;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowStepInstanceRepository;
 import com.fractalhive.workflowcore.workflow.statemachine.service.WorkflowInstanceStateMachineService;
+import com.fractalhive.workflowcore.workflow.statemachine.service.WorkflowStageInstanceStateMachineService;
 import com.fractalhive.workflowcore.workflow.statemachine.service.WorkflowStepInstanceStateMachineService;
 import com.fractalhive.workflowcore.workitem.repository.WorkItemRepository;
 import com.fractalhive.workflowcore.workitem.statemachine.service.WorkItemStateMachineService;
@@ -51,9 +58,12 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkItemRepository workItemRepository;
     private final WorkflowInstanceRepository workflowInstanceRepository;
+    private final WorkflowStageDefinitionRepository stageDefinitionRepository;
+    private final WorkflowStageInstanceRepository stageInstanceRepository;
     private final WorkflowStepInstanceRepository stepInstanceRepository;
     private final WorkflowStepDefinitionRepository stepDefinitionRepository;
     private final WorkflowInstanceStateMachineService workflowInstanceSM;
+    private final WorkflowStageInstanceStateMachineService stageInstanceSM;
     private final WorkflowStepInstanceStateMachineService stepInstanceSM;
     private final WorkItemStateMachineService workItemSM;
     private final TaskManagementService taskManagementService;
@@ -67,9 +77,12 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
             WorkflowDefinitionService workflowDefinitionService,
             WorkItemRepository workItemRepository,
             WorkflowInstanceRepository workflowInstanceRepository,
+            WorkflowStageDefinitionRepository stageDefinitionRepository,
+            WorkflowStageInstanceRepository stageInstanceRepository,
             WorkflowStepInstanceRepository stepInstanceRepository,
             WorkflowStepDefinitionRepository stepDefinitionRepository,
             WorkflowInstanceStateMachineService workflowInstanceSM,
+            WorkflowStageInstanceStateMachineService stageInstanceSM,
             WorkflowStepInstanceStateMachineService stepInstanceSM,
             WorkItemStateMachineService workItemSM,
             TaskManagementService taskManagementService,
@@ -81,9 +94,12 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
         this.workflowDefinitionService = workflowDefinitionService;
         this.workItemRepository = workItemRepository;
         this.workflowInstanceRepository = workflowInstanceRepository;
+        this.stageDefinitionRepository = stageDefinitionRepository;
+        this.stageInstanceRepository = stageInstanceRepository;
         this.stepInstanceRepository = stepInstanceRepository;
         this.stepDefinitionRepository = stepDefinitionRepository;
         this.workflowInstanceSM = workflowInstanceSM;
+        this.stageInstanceSM = stageInstanceSM;
         this.stepInstanceSM = stepInstanceSM;
         this.workItemSM = workItemSM;
         this.taskManagementService = taskManagementService;
@@ -123,25 +139,46 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
 
         logger.info("Created workflow instance: {}", instance.getId());
 
-        // Get all step definitions ordered by step order
-        List<WorkflowStepDefinition> stepDefs = stepDefinitionRepository
-                .findByWorkflowIdOrderByStepOrderAsc(workflowDefinitionId);
+        // Get all stage definitions ordered by stage order (with steps loaded via JOIN FETCH)
+        List<WorkflowStageDefinition> stageDefs = stageDefinitionRepository
+                .findByWorkflowIdOrderByStageOrderAsc(workflowDefinitionId);
 
-        if (stepDefs.isEmpty()) {
-            throw new IllegalStateException("Workflow definition has no steps: " + workflowDefinitionId);
+        if (stageDefs.isEmpty()) {
+            throw new IllegalStateException("Workflow definition has no stages: " + workflowDefinitionId);
         }
 
-        // Create step instances for all steps
-        for (WorkflowStepDefinition stepDef : stepDefs) {
-            WorkflowStepInstance stepInstance = new WorkflowStepInstance();
-            stepInstance.setWorkflowInstanceId(instance.getId());
-            stepInstance.setStepId(stepDef.getId());
-            stepInstance.setStatus(StepStatus.NOT_STARTED);
-            stepInstance.setCreatedAt(now);
-            stepInstance.setCreatedBy(userId);
-            stepInstanceRepository.save(stepInstance);
-            logger.debug("Created step instance: {} for step: {}", stepInstance.getId(), stepDef.getStepName());
+        // Batch create stage instances and step instances
+        List<WorkflowStageInstance> stageInstances = new ArrayList<>();
+        List<WorkflowStepInstance> stepInstances = new ArrayList<>();
+
+        for (WorkflowStageDefinition stageDef : stageDefs) {
+            // Create stage instance
+            WorkflowStageInstance stageInstance = new WorkflowStageInstance();
+            stageInstance.setWorkflowInstanceId(instance.getId());
+            stageInstance.setStageId(stageDef.getId());
+            stageInstance.setStatus(StageStatus.NOT_STARTED);
+            stageInstance.setCreatedAt(now);
+            stageInstance.setCreatedBy(userId);
+            stageInstances.add(stageInstance);
+
+            // Create step instances for all steps in this stage
+            List<WorkflowStepDefinition> stepDefs = stepDefinitionRepository
+                    .findByStageIdOrderByStepOrderAsc(stageDef.getId());
+            for (WorkflowStepDefinition stepDef : stepDefs) {
+                WorkflowStepInstance stepInstance = new WorkflowStepInstance();
+                stepInstance.setWorkflowInstanceId(instance.getId());
+                stepInstance.setStepId(stepDef.getId());
+                stepInstance.setStatus(StepStatus.NOT_STARTED);
+                stepInstance.setCreatedAt(now);
+                stepInstance.setCreatedBy(userId);
+                stepInstances.add(stepInstance);
+            }
         }
+
+        // Batch save all instances
+        stageInstanceRepository.saveAll(stageInstances);
+        stepInstanceRepository.saveAll(stepInstances);
+        logger.info("Created {} stage instance(s) and {} step instance(s)", stageInstances.size(), stepInstances.size());
 
         // Start the workflow instance (NOT_STARTED → IN_PROGRESS)
         workflowInstanceSM.start(instance.getId(), userId);
@@ -149,33 +186,17 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
         // Move work item to IN_REVIEW
         workItemSM.startReview(workItemId, userId);
 
-        // Start all steps with stepOrder = 1 (parallel execution)
-        List<WorkflowStepInstance> steps = stepInstanceRepository
-                .findByWorkflowInstanceIdAndStatus(instance.getId(), StepStatus.NOT_STARTED);
+        // Start first stage (stageOrder = 1)
+        WorkflowStageInstance firstStageInstance = stageInstances.stream()
+                .filter(si -> {
+                    WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(si.getStageId())
+                            .orElse(null);
+                    return stageDef != null && stageDef.getStageOrder() == 1;
+                })
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No stage with order 1 found"));
 
-        if (!steps.isEmpty()) {
-            // Get step definitions to find steps with order = 1
-            List<WorkflowStepInstance> firstOrderSteps = new ArrayList<>();
-            for (WorkflowStepInstance step : steps) {
-                WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(step.getStepId())
-                        .orElse(null);
-                if (stepDef != null && stepDef.getStepOrder() == 1) {
-                    firstOrderSteps.add(step);
-                }
-            }
-
-            // Start all first-order steps in parallel
-            for (WorkflowStepInstance firstStep : firstOrderSteps) {
-                stepInstanceSM.start(firstStep.getId(), userId);
-                List<UUID> taskIds = taskManagementService.createTasksForStep(firstStep.getId(), userId);
-                logger.info("Started parallel step: {} (order: 1) and created {} tasks",
-                        firstStep.getId(), taskIds.size());
-                
-                // Evaluate auto-approve rules after task creation
-                evaluateAndApplyAutoApproveRules(firstStep.getId(), userId);
-            }
-            logger.info("Started {} parallel steps for order 1", firstOrderSteps.size());
-        }
+        startStage(firstStageInstance.getId(), userId);
 
         logger.info("Workflow started successfully. Instance ID: {}", instance.getId());
         return instance.getId();
@@ -271,113 +292,279 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
 
     // ===== Private helper methods =====
 
+    /**
+     * Starts a stage and its steps based on stepCompletionType.
+     *
+     * @param stageInstanceId the stage instance ID
+     * @param userId          the user ID
+     */
+    private void startStage(UUID stageInstanceId, String userId) {
+        logger.info("Starting stage: {}", stageInstanceId);
+
+        WorkflowStageInstance stageInstance = stageInstanceRepository.findById(stageInstanceId)
+                .orElseThrow(() -> new IllegalStateException("Stage instance not found: " + stageInstanceId));
+
+        WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(stageInstance.getStageId())
+                .orElseThrow(() -> new IllegalStateException("Stage definition not found: " + stageInstance.getStageId()));
+
+        // Start the stage
+        stageInstanceSM.start(stageInstanceId, userId);
+
+        // Get all step instances for this stage
+        List<WorkflowStepInstance> stepInstances = stepInstanceRepository
+                .findByWorkflowInstanceId(stageInstance.getWorkflowInstanceId())
+                .stream()
+                .filter(si -> {
+                    WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(si.getStepId())
+                            .orElse(null);
+                    return stepDef != null && stepDef.getStageId().equals(stageInstance.getStageId());
+                })
+                .collect(Collectors.toList());
+
+        if (stepInstances.isEmpty()) {
+            logger.warn("No steps found for stage: {}", stageInstanceId);
+            return;
+        }
+
+        // Start steps based on stepCompletionType
+        if (stageDef.getStepCompletionType() == ApprovalType.ALL) {
+            // Sequential execution - start first step only
+            WorkflowStepInstance firstStep = stepInstances.stream()
+                    .filter(si -> {
+                        WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(si.getStepId())
+                                .orElse(null);
+                        return stepDef != null && stepDef.getStepOrder() == 1;
+                    })
+                    .findFirst()
+                    .orElse(null);
+
+            if (firstStep != null) {
+                stepInstanceSM.start(firstStep.getId(), userId);
+                List<UUID> taskIds = taskManagementService.createTasksForStep(firstStep.getId(), userId);
+                logger.info("Started first step: {} (order: 1) and created {} tasks", firstStep.getId(), taskIds.size());
+                evaluateAndApplyAutoApproveRules(firstStep.getId(), userId);
+            }
+        } else {
+            // Parallel execution (ANY or N_OF_M) - start all steps
+            for (WorkflowStepInstance stepInstance : stepInstances) {
+                stepInstanceSM.start(stepInstance.getId(), userId);
+                List<UUID> taskIds = taskManagementService.createTasksForStep(stepInstance.getId(), userId);
+                logger.info("Started parallel step: {} and created {} tasks", stepInstance.getId(), taskIds.size());
+                evaluateAndApplyAutoApproveRules(stepInstance.getId(), userId);
+            }
+            logger.info("Started {} parallel steps for stage {}", stepInstances.size(), stageInstanceId);
+        }
+    }
+
     private void handleStepCompletion(UUID stepInstanceId, String userId) {
         logger.info("Step completed: {}", stepInstanceId);
 
         // Complete the current step
         stepInstanceSM.complete(stepInstanceId, userId);
 
-        // Get the workflow instance ID
+        // Get the step instance and find its stage
         WorkflowStepInstance stepInstance = stepInstanceRepository.findById(stepInstanceId)
                 .orElseThrow(() -> new IllegalStateException("Step instance not found: " + stepInstanceId));
-        UUID workflowInstanceId = stepInstance.getWorkflowInstanceId();
 
-        // Get the completed step's definition to check its order
-        WorkflowStepDefinition completedStepDef = stepDefinitionRepository.findById(stepInstance.getStepId())
+        WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(stepInstance.getStepId())
                 .orElseThrow(() -> new IllegalStateException("Step definition not found: " + stepInstance.getStepId()));
 
-        int completedStepOrder = completedStepDef.getStepOrder();
+        // Find the stage instance for this step
+        WorkflowStageInstance stageInstance = stageInstanceRepository
+                .findByWorkflowInstanceId(stepInstance.getWorkflowInstanceId())
+                .stream()
+                .filter(si -> si.getStageId().equals(stepDef.getStageId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Stage instance not found for step: " + stepInstanceId));
 
-        // Check if there are other steps with the same order still in progress
-        List<WorkflowStepInstance> allSteps = stepInstanceRepository
-                .findByWorkflowInstanceId(workflowInstanceId);
+        WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(stageInstance.getStageId())
+                .orElseThrow(() -> new IllegalStateException("Stage definition not found: " + stageInstance.getStageId()));
 
-        // Check for parallel steps (same order) still in progress
-        boolean hasParallelStepsInProgress = allSteps.stream()
-                .anyMatch(ps -> {
-                    if (ps.getId().equals(stepInstanceId)) {
-                        return false; // Skip the just-completed step
-                    }
-                    WorkflowStepDefinition psDef = stepDefinitionRepository.findById(ps.getStepId())
+        // Check if stage completion criteria is met
+        if (isStageComplete(stageInstance.getId(), stageDef)) {
+            // Stage is complete, move to next stage or complete workflow
+            handleStageCompletion(stageInstance.getId(), userId);
+        } else {
+            // Stage not complete yet
+            if (stageDef.getStepCompletionType() == ApprovalType.ALL) {
+                // Sequential execution - start next step in same stage
+                startNextStepInStage(stageInstance.getId(), stepDef.getStepOrder(), userId);
+            }
+            // For parallel execution (ANY/N_OF_M), wait for more step completions
+        }
+    }
+
+    /**
+     * Checks if a stage is complete based on its stepCompletionType.
+     *
+     * @param stageInstanceId the stage instance ID
+     * @param stageDef        the stage definition
+     * @return true if stage is complete, false otherwise
+     */
+    private boolean isStageComplete(UUID stageInstanceId, WorkflowStageDefinition stageDef) {
+        WorkflowStageInstance stageInstance = stageInstanceRepository.findById(stageInstanceId)
+                .orElseThrow(() -> new IllegalStateException("Stage instance not found: " + stageInstanceId));
+
+        // Get all step instances for this stage
+        List<WorkflowStepInstance> stepInstances = stepInstanceRepository
+                .findByWorkflowInstanceId(stageInstance.getWorkflowInstanceId())
+                .stream()
+                .filter(si -> {
+                    WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(si.getStepId())
                             .orElse(null);
-                    return psDef != null
-                            && psDef.getStepOrder().equals(completedStepOrder)
-                            && ps.getStatus() == StepStatus.IN_PROGRESS;
-                });
+                    return stepDef != null && stepDef.getStageId().equals(stageInstance.getStageId());
+                })
+                .collect(Collectors.toList());
 
-        // If parallel steps are still in progress, don't advance yet
-        if (hasParallelStepsInProgress) {
-            logger.info("Parallel steps with order {} still in progress, waiting for completion", completedStepOrder);
+        if (stepInstances.isEmpty()) {
+            return false;
+        }
+
+        long completedCount = stepInstances.stream()
+                .filter(si -> si.getStatus() == StepStatus.COMPLETED)
+                .count();
+
+        switch (stageDef.getStepCompletionType()) {
+            case ALL:
+                // All steps must be completed
+                return completedCount == stepInstances.size();
+            case ANY:
+                // Any step completion completes the stage
+                return completedCount > 0;
+            case N_OF_M:
+                // Minimum number of steps must be completed
+                int minRequired = stageDef.getMinStepCompletions() != null
+                        ? stageDef.getMinStepCompletions()
+                        : stepInstances.size();
+                return completedCount >= minRequired;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Starts the next step in a stage (for sequential execution).
+     *
+     * @param stageInstanceId the stage instance ID
+     * @param currentStepOrder the current step order
+     * @param userId          the user ID
+     */
+    private void startNextStepInStage(UUID stageInstanceId, int currentStepOrder, String userId) {
+        WorkflowStageInstance stageInstance = stageInstanceRepository.findById(stageInstanceId)
+                .orElseThrow(() -> new IllegalStateException("Stage instance not found: " + stageInstanceId));
+
+        // Get all step instances for this stage
+        List<WorkflowStepInstance> stepInstances = stepInstanceRepository
+                .findByWorkflowInstanceId(stageInstance.getWorkflowInstanceId())
+                .stream()
+                .filter(si -> {
+                    WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(si.getStepId())
+                            .orElse(null);
+                    return stepDef != null
+                            && stepDef.getStageId().equals(stageInstance.getStageId())
+                            && si.getStatus() == StepStatus.NOT_STARTED;
+                })
+                .collect(Collectors.toList());
+
+        // Find next step order
+        int nextOrder = stepInstances.stream()
+                .map(si -> {
+                    WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(si.getStepId())
+                            .orElse(null);
+                    return stepDef != null ? stepDef.getStepOrder() : Integer.MAX_VALUE;
+                })
+                .filter(order -> order > currentStepOrder)
+                .min(Integer::compare)
+                .orElse(-1);
+
+        if (nextOrder == -1) {
+            logger.debug("No next step found in stage {}", stageInstanceId);
             return;
         }
 
-        // All steps of this order are complete, now check for next steps
-        List<WorkflowStepInstance> remaining = stepInstanceRepository
-                .findByWorkflowInstanceIdAndStatus(workflowInstanceId, StepStatus.NOT_STARTED);
+        // Start the next step
+        WorkflowStepInstance nextStep = stepInstances.stream()
+                .filter(si -> {
+                    WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(si.getStepId())
+                            .orElse(null);
+                    return stepDef != null && stepDef.getStepOrder() == nextOrder;
+                })
+                .findFirst()
+                .orElse(null);
 
-        if (remaining.isEmpty()) {
-            // All steps completed → complete workflow
-            logger.info("All steps completed. Completing workflow instance: {}", workflowInstanceId);
+        if (nextStep != null) {
+            stepInstanceSM.start(nextStep.getId(), userId);
+            List<UUID> taskIds = taskManagementService.createTasksForStep(nextStep.getId(), userId);
+            logger.info("Started next step: {} (order: {}) in stage {} and created {} tasks",
+                    nextStep.getId(), nextOrder, stageInstanceId, taskIds.size());
+            evaluateAndApplyAutoApproveRules(nextStep.getId(), userId);
+        }
+    }
+
+    /**
+     * Handles stage completion - starts next stage or completes workflow.
+     *
+     * @param stageInstanceId the completed stage instance ID
+     * @param userId          the user ID
+     */
+    private void handleStageCompletion(UUID stageInstanceId, String userId) {
+        logger.info("Stage completed: {}", stageInstanceId);
+
+        // Complete the stage
+        stageInstanceSM.complete(stageInstanceId, userId);
+
+        WorkflowStageInstance completedStage = stageInstanceRepository.findById(stageInstanceId)
+                .orElseThrow(() -> new IllegalStateException("Stage instance not found: " + stageInstanceId));
+
+        WorkflowStageDefinition completedStageDef = stageDefinitionRepository.findById(completedStage.getStageId())
+                .orElseThrow(() -> new IllegalStateException("Stage definition not found: " + completedStage.getStageId()));
+
+        UUID workflowInstanceId = completedStage.getWorkflowInstanceId();
+
+        // Find next stage
+        List<WorkflowStageInstance> allStages = stageInstanceRepository
+                .findByWorkflowInstanceIdOrderByStageOrderAsc(workflowInstanceId);
+
+        int nextStageOrder = allStages.stream()
+                .filter(si -> {
+                    WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(si.getStageId())
+                            .orElse(null);
+                    return stageDef != null
+                            && stageDef.getStageOrder() > completedStageDef.getStageOrder()
+                            && si.getStatus() == StageStatus.NOT_STARTED;
+                })
+                .map(si -> {
+                    WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(si.getStageId())
+                            .orElse(null);
+                    return stageDef != null ? stageDef.getStageOrder() : Integer.MAX_VALUE;
+                })
+                .min(Integer::compare)
+                .orElse(-1);
+
+        if (nextStageOrder == -1) {
+            // No more stages → complete workflow
+            logger.info("All stages completed. Completing workflow instance: {}", workflowInstanceId);
             workflowInstanceSM.complete(workflowInstanceId, userId);
 
-            // Approve the work item
             WorkflowInstance workflowInstance = workflowInstanceRepository.findById(workflowInstanceId)
                     .orElseThrow(() -> new IllegalStateException("Workflow instance not found: " + workflowInstanceId));
             workItemSM.approve(workflowInstance.getWorkItemId(), userId);
             logger.info("Workflow completed and work item approved. Work item ID: {}", workflowInstance.getWorkItemId());
         } else {
-            // Find the next step order
-            int nextOrder = getNextStepOrder(workflowInstanceId, completedStepOrder);
-
-            if (nextOrder == -1) {
-                logger.warn("No next step order found after order {}", completedStepOrder);
-                return;
-            }
-
-            // Start ALL steps with the next order (parallel execution)
-            List<WorkflowStepInstance> nextSteps = remaining.stream()
-                    .filter(step -> {
-                        WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(step.getStepId())
+            // Start next stage
+            WorkflowStageInstance nextStage = allStages.stream()
+                    .filter(si -> {
+                        WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(si.getStageId())
                                 .orElse(null);
-                        return stepDef != null && stepDef.getStepOrder().equals(nextOrder);
+                        return stageDef != null && stageDef.getStageOrder() == nextStageOrder;
                     })
-                    .collect(Collectors.toList());
+                    .findFirst()
+                    .orElse(null);
 
-            // Start all next steps in parallel
-            for (WorkflowStepInstance nextStep : nextSteps) {
-                stepInstanceSM.start(nextStep.getId(), userId);
-                List<UUID> taskIds = taskManagementService.createTasksForStep(nextStep.getId(), userId);
-                logger.info("Started next step: {} (order: {}) and created {} tasks",
-                        nextStep.getId(), nextOrder, taskIds.size());
-                
-                // Evaluate auto-approve rules after task creation
-                evaluateAndApplyAutoApproveRules(nextStep.getId(), userId);
+            if (nextStage != null) {
+                startStage(nextStage.getId(), userId);
             }
-            logger.info("Started {} parallel steps for order {}", nextSteps.size(), nextOrder);
         }
-    }
-
-    /**
-     * Helper method to get the next step order after a given order.
-     *
-     * @param workflowInstanceId the workflow instance ID
-     * @param currentOrder       the current step order
-     * @return the next step order, or -1 if no next step exists
-     */
-    private int getNextStepOrder(UUID workflowInstanceId, int currentOrder) {
-        WorkflowInstance instance = workflowInstanceRepository.findById(workflowInstanceId)
-                .orElseThrow(() -> new IllegalStateException("Workflow instance not found: " + workflowInstanceId));
-
-        // Get all step definitions ordered by step order
-        List<WorkflowStepDefinition> allStepDefs = stepDefinitionRepository
-                .findByWorkflowIdOrderByStepOrderAsc(instance.getWorkflowId());
-
-        // Find the next order after currentOrder
-        return allStepDefs.stream()
-                .map(WorkflowStepDefinition::getStepOrder)
-                .filter(order -> order > currentOrder)
-                .findFirst()
-                .orElse(-1); // No next step
     }
 
     private void handleStepRejection(UUID stepInstanceId, String userId) {
@@ -391,11 +578,31 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
         // Fail the current step
         stepInstanceSM.fail(stepInstanceId, userId, "Step rejected by approver");
 
+        // Fail the stage containing this step
+        WorkflowStepDefinition stepDef = stepDefinitionRepository.findById(stepInstance.getStepId())
+                .orElseThrow(() -> new IllegalStateException("Step definition not found: " + stepInstance.getStepId()));
+
+        WorkflowStageInstance stageInstance = stageInstanceRepository
+                .findByWorkflowInstanceId(workflowInstanceId)
+                .stream()
+                .filter(si -> si.getStageId().equals(stepDef.getStageId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Stage instance not found for step: " + stepInstanceId));
+
+        stageInstanceSM.fail(stageInstance.getId(), userId, "Stage failed due to step rejection");
+
         // Cancel all pending tasks in remaining steps (future steps)
         List<WorkflowStepInstance> remaining = stepInstanceRepository
                 .findByWorkflowInstanceIdAndStatus(workflowInstanceId, StepStatus.NOT_STARTED);
         for (WorkflowStepInstance remainingStep : remaining) {
             approvalTaskSM.cancelAllForStep(remainingStep.getId());
+        }
+
+        // Cancel all remaining stages
+        List<WorkflowStageInstance> remainingStages = stageInstanceRepository
+                .findByWorkflowInstanceIdAndStatus(workflowInstanceId, StageStatus.NOT_STARTED);
+        for (WorkflowStageInstance remainingStage : remainingStages) {
+            stageInstanceSM.fail(remainingStage.getId(), userId, "Stage cancelled due to workflow failure");
         }
 
         // Fail the workflow instance
