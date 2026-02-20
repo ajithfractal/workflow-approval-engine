@@ -76,6 +76,13 @@ or
 
 **Purpose:** Used by `TenantFilter` to determine tenant schema for multi-tenancy
 
+**Important Notes:**
+- **Admin users** (with `WORKFLOW_ADMIN` role) should **NOT** have a `schema` claim (or it should be `null`)
+- **Tenant users** must have a `schema` claim with their application's schema name (e.g., `app_webapp1`)
+- The schema name format is: `app_{applicationCode}` (e.g., `app_webapp1`, `app_webapp2`)
+- The workflow engine uses a dedicated `workflow_master` schema for master/administrative data
+- Tenant schemas are isolated and contain application-specific workflow data
+
 **Example:**
 ```java
 // Extract from JWT
@@ -87,10 +94,23 @@ if (schema != null && !schema.trim().isEmpty()) {
 }
 ```
 
-**JWT Token Example:**
+**JWT Token Examples:**
+
+**Admin User (no schema claim):**
+```json
+{
+  "sub": "admin-user-id",
+  "email": "admin@workflowengine.com",
+  "schema": null,
+  "roles": ["WORKFLOW_ADMIN", "user"]
+}
+```
+
+**Tenant User (with schema claim):**
 ```json
 {
   "sub": "user-id",
+  "email": "user@webapp1.com",
   "schema": "app_webapp1",
   "roles": ["user"]
 }
@@ -325,9 +345,29 @@ public class KeycloakUtils {
 
 The Keycloak filter **MAY** skip authentication for:
 
-- `/api/applications/register` (public endpoint)
+- `/api/applications/register` (public registration endpoint - no authentication required)
 - Health check endpoints (`/actuator/health`)
 - Swagger/OpenAPI endpoints (`/swagger-ui/**`, `/v3/api-docs/**`)
+
+**Note:** The registration endpoint is intentionally public to allow new applications to register themselves with the workflow engine.
+
+### 3. Schema Architecture
+
+The workflow engine uses a multi-tenant schema architecture:
+
+- **`workflow_master` schema**: Contains master/administrative data (e.g., `registered_application` table)
+  - Used by admin users and system operations
+  - Created automatically on application startup
+  - Admin users don't need a schema claim in their JWT token
+
+- **Tenant schemas** (e.g., `app_webapp1`, `app_webapp2`): Contains application-specific workflow data
+  - Each registered application gets its own isolated schema
+  - Format: `app_{applicationCode}`
+  - Tenant users must have the `schema` claim in their JWT token matching their application's schema
+
+**Schema Naming Convention:**
+- Master schema: `workflow_master` (fixed)
+- Tenant schemas: `app_{applicationCode}` (e.g., `app_webapp1`, `app_webapp2`)
 
 ## Testing Requirements
 
@@ -360,9 +400,27 @@ The Keycloak dependency should be tested with:
 - Invalid token: `401 Unauthorized`
 - Expired token: `403 Forbidden`
 
+## Implementation Checklist
+
+To implement the Keycloak dependency for the workflow engine, you must:
+
+- [ ] **Create a Servlet Filter** that runs before workflow engine filters (`@Order(-1)` or lower)
+- [ ] **Extract JWT token** from `Authorization: Bearer <token>` header
+- [ ] **Validate JWT token** (signature, expiration, issuer)
+- [ ] **Extract `roles` claim** from JWT (supports both `roles` and `realm_access.roles`)
+- [ ] **Set `roles` request attribute** as `List<String>` or `String`
+- [ ] **Extract `schema` claim** from JWT (if present)
+- [ ] **Set `schemaName` request attribute** as `String` (only if schema claim exists)
+- [ ] **Handle errors** appropriately (401 for invalid/missing tokens, 403 for expired tokens)
+- [ ] **Skip authentication** for public endpoints (`/api/applications/register`, health checks, Swagger)
+- [ ] **Log authentication failures** for security monitoring
+
 ## Notes
 
 - The workflow engine does **NOT** implement Keycloak authentication logic
 - All authentication/authorization is delegated to the Keycloak dependency
 - The workflow engine only reads request attributes set by the Keycloak filter
 - The Keycloak dependency is responsible for token validation and claim extraction
+- **Admin users** should have `WORKFLOW_ADMIN` role and **no schema claim** (or `null`)
+- **Tenant users** should have a `schema` claim matching their application's schema name (e.g., `app_webapp1`)
+- The workflow engine uses `workflow_master` schema for master data (not `public` schema)

@@ -15,10 +15,18 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
  * To run in standalone mode:
  * 1. Build with profile: mvn clean package -Pstandalone
  * 2. Run: java -jar target/workflow-core-starter-*.jar
+ * 
+ * Or run directly: mvn spring-boot:run -Pstandalone
  */
-@SpringBootApplication(scanBasePackages = {
-    "com.fractalhive.workflowcore"
-})
+@SpringBootApplication(
+    scanBasePackages = {
+        "com.fractalhive.workflowcore",
+        "com.fractalhive.keycloak"
+    },
+    exclude = {
+        com.fractalhive.workflowcore.config.WorkflowCoreAutoConfiguration.class
+    }
+)
 @EntityScan(basePackages = {
     "com.fractalhive.workflowcore.workflow.entity",
     "com.fractalhive.workflowcore.approval.entity",
@@ -37,6 +45,12 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 public class WorkflowEngineApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(WorkflowEngineApplication.class, args);
+        SpringApplication app = new SpringApplication(WorkflowEngineApplication.class);
+        // Activate standalone profile if not already set
+        if (System.getProperty("spring.profiles.active") == null 
+            && System.getenv("SPRING_PROFILES_ACTIVE") == null) {
+            app.setAdditionalProfiles("standalone");
+        }
+        app.run(args);
     }
 }

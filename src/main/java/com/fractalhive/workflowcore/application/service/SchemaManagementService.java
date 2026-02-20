@@ -6,35 +6,33 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fractalhive.workflowcore.tenant.TenantSchemaInitializer;
+
+import lombok.RequiredArgsConstructor;
+
 /**
  * Service for managing PostgreSQL schemas for multi-tenant isolation.
  */
 @Service
+@RequiredArgsConstructor
 public class SchemaManagementService {
 
     private static final Logger logger = LoggerFactory.getLogger(SchemaManagementService.class);
+    private static final String MASTER_SCHEMA = "workflow_master";
 
     private final JdbcTemplate jdbcTemplate;
+    private final TenantSchemaInitializer tenantSchemaInitializer;
 
-    public SchemaManagementService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
 
     /**
-     * Creates a new PostgreSQL schema.
+     * Creates a new PostgreSQL schema and initializes tables in it.
      *
      * @param schemaName the schema name (must be sanitized)
      * @throws IllegalArgumentException if schema already exists
      */
     @Transactional
     public void createSchema(String schemaName) {
-        if (schemaExists(schemaName)) {
-            throw new IllegalArgumentException("Schema already exists: " + schemaName);
-        }
-
-        String sql = "CREATE SCHEMA IF NOT EXISTS " + sanitizeSchemaName(schemaName);
-        jdbcTemplate.execute(sql);
-        logger.info("Created schema: {}", schemaName);
+        tenantSchemaInitializer.initializeSchema(schemaName);
     }
 
     /**
@@ -106,4 +104,29 @@ public class SchemaManagementService {
         String sanitized = sanitizeSchemaName(applicationCode);
         return "app_" + sanitized.toLowerCase();
     }
+
+    /**
+     * Ensures the workflow_master schema exists.
+     * Creates it if it doesn't exist.
+     */
+    @Transactional
+    public void ensureMasterSchemaExists() {
+        if (!schemaExists(MASTER_SCHEMA)) {
+            String sql = "CREATE SCHEMA IF NOT EXISTS " + MASTER_SCHEMA;
+            jdbcTemplate.execute(sql);
+            logger.info("Created master schema: {}", MASTER_SCHEMA);
+        } else {
+            logger.debug("Master schema already exists: {}", MASTER_SCHEMA);
+        }
+    }
+
+    /**
+     * Gets the master schema name.
+     *
+     * @return the master schema name
+     */
+    public String getMasterSchema() {
+        return MASTER_SCHEMA;
+    }
+  
 }

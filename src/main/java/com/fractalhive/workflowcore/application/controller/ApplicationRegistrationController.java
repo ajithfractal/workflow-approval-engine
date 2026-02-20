@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -69,6 +70,7 @@ public class ApplicationRegistrationController {
      *
      * @return list of applications
      */
+    @PreAuthorize("hasRole('WORKFLOW_ADMIN')")
     @GetMapping
     @Operation(
             summary = "List all applications",
@@ -87,6 +89,7 @@ public class ApplicationRegistrationController {
      *
      * @return list of active applications
      */
+    @PreAuthorize("hasRole('WORKFLOW_ADMIN')")
     @GetMapping("/active")
     @Operation(
             summary = "List active applications",
@@ -106,6 +109,7 @@ public class ApplicationRegistrationController {
      * @param appId the application ID
      * @return the application details
      */
+    @PreAuthorize("hasRole('WORKFLOW_ADMIN')")
     @GetMapping("/{appId}")
     @Operation(
             summary = "Get application by ID",
@@ -131,6 +135,7 @@ public class ApplicationRegistrationController {
      * @param updatedBy the user updating the application
      * @return success response
      */
+    @PreAuthorize("hasRole('WORKFLOW_ADMIN')")
     @PutMapping("/{appId}")
     @Operation(
             summary = "Update application",
@@ -161,6 +166,7 @@ public class ApplicationRegistrationController {
      * @param updatedBy the user deactivating the application
      * @return success response
      */
+    @PreAuthorize("hasRole('WORKFLOW_ADMIN')")
     @DeleteMapping("/{appId}")
     @Operation(
             summary = "Deactivate application",

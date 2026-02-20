@@ -43,6 +43,9 @@ public class ApplicationRegistrationService {
      */
     @Transactional
     public UUID registerApplication(ApplicationRegistrationRequest request, String createdBy) {
+        // Ensure master schema exists (should already exist from SchemaInitializer, but double-check)
+        schemaManagementService.ensureMasterSchemaExists();
+
         // Validate userApi endpoint exists
         Map<String, String> apiEndpoints = request.getApiEndpoints();
         if (apiEndpoints == null || !apiEndpoints.containsKey("userApi") || apiEndpoints.get("userApi") == null) {

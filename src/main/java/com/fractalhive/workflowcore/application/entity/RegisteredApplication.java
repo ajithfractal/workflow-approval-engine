@@ -12,10 +12,10 @@ import java.util.Map;
 /**
  * Represents a registered application in the workflow engine.
  * Each registered application gets its own database schema for data isolation.
- * This entity is stored in the default/public schema (not tenant-specific).
+ * This entity is stored in the workflow_master schema (not tenant-specific).
  */
 @Entity
-@Table(name = "registered_application", schema = "public")
+@Table(name = "registered_application", schema = "workflow_master")
 @Getter
 @Setter
 public class RegisteredApplication extends BaseEntity {

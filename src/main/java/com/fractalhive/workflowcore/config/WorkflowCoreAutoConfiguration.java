@@ -24,7 +24,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
     "com.fractalhive.workflowcore.user",
     "com.fractalhive.workflowcore.tenant",
     "com.fractalhive.workflowcore.common",
-    "com.fractalhive.workflowcore.config"
+    "com.fractalhive.workflowcore.config",
+    "com.fractalhive.keycloak"
 })
 @EntityScan(basePackages = {
     "com.fractalhive.workflowcore.workflow.entity",

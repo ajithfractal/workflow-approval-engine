@@ -2,6 +2,7 @@ package com.fractalhive.workflowcore.user.controller;
 
 import com.fractalhive.workflowcore.common.dto.PaginatedResponse;
 import com.fractalhive.workflowcore.tenant.SchemaRoutingDataSource;
+import com.fractalhive.workflowcore.tenant.TenantIdentifierResolver;
 import com.fractalhive.workflowcore.user.dto.ExternalUser;
 import com.fractalhive.workflowcore.user.dto.UserListRequest;
 import com.fractalhive.workflowcore.user.service.ExternalUserService;
@@ -10,6 +11,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,16 +21,14 @@ import org.springframework.web.bind.annotation.*;
  * Fetches users from external application APIs based on current tenant schema.
  */
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api/users")
 @CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 @Tag(name = "Users", description = "APIs for fetching users from external application APIs")
 public class UserController {
 
     private final ExternalUserService userService;
-
-    public UserController(ExternalUserService userService) {
-        this.userService = userService;
-    }
+    private final TenantIdentifierResolver tenantIdentifierResolver;
 
     /**
      * Lists users from external API.
@@ -57,8 +58,8 @@ public class UserController {
             @RequestParam(required = false) Integer limit) {
 
         // Get schema from request context
-        String schemaName = SchemaRoutingDataSource.getCurrentTenantSchema();
-        if (schemaName == null || "public".equals(schemaName)) {
+        String schemaName = tenantIdentifierResolver.resolveCurrentTenantIdentifier();
+        if (schemaName == null || "workflow_master".equals(schemaName)) {
             return ResponseEntity.status(403).build();
         }
 
