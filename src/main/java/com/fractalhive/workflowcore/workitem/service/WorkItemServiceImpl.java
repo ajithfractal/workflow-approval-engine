@@ -14,6 +14,9 @@ import org.springframework.data.domain.Sort;
 import com.fractalhive.workflowcore.workitem.repository.WorkItemRepository;
 import com.fractalhive.workflowcore.workitem.repository.WorkItemVersionRepository;
 import com.fractalhive.workflowcore.workitem.statemachine.service.WorkItemStateMachineService;
+
+import lombok.RequiredArgsConstructor;
+
 import com.fractalhive.workflowcore.workflow.entity.WorkflowDefinition;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowInstance;
 import com.fractalhive.workflowcore.workflow.entity.WorkflowStepDefinition;
@@ -24,6 +27,8 @@ import com.fractalhive.workflowcore.workflow.repository.WorkflowDefinitionReposi
 import com.fractalhive.workflowcore.workflow.repository.WorkflowInstanceRepository;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowStepDefinitionRepository;
 import com.fractalhive.workflowcore.workflow.repository.WorkflowStepInstanceRepository;
+import com.fractalhive.workflowcore.workflow.service.WorkflowOrchestratorService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -43,6 +48,7 @@ import java.util.stream.Collectors;
  * Uses WorkItemStateMachineService for all status transitions.
  */
 @Service
+@RequiredArgsConstructor
 public class WorkItemServiceImpl implements WorkItemService {
 
     private static final Logger logger = LoggerFactory.getLogger(WorkItemServiceImpl.class);
@@ -55,26 +61,8 @@ public class WorkItemServiceImpl implements WorkItemService {
     private final WorkflowStepDefinitionRepository stepDefinitionRepository;
     private final WorkflowDefinitionRepository workflowDefinitionRepository;
     private final ApprovalTaskRepository approvalTaskRepository;
-
-    public WorkItemServiceImpl(
-            WorkItemRepository workItemRepository,
-            WorkItemVersionRepository workItemVersionRepository,
-            WorkItemStateMachineService workItemStateMachineService,
-            WorkflowInstanceRepository workflowInstanceRepository,
-            WorkflowStepInstanceRepository stepInstanceRepository,
-            WorkflowStepDefinitionRepository stepDefinitionRepository,
-            WorkflowDefinitionRepository workflowDefinitionRepository,
-            ApprovalTaskRepository approvalTaskRepository) {
-        this.workItemRepository = workItemRepository;
-        this.workItemVersionRepository = workItemVersionRepository;
-        this.workItemStateMachineService = workItemStateMachineService;
-        this.workflowInstanceRepository = workflowInstanceRepository;
-        this.stepInstanceRepository = stepInstanceRepository;
-        this.stepDefinitionRepository = stepDefinitionRepository;
-        this.workflowDefinitionRepository = workflowDefinitionRepository;
-        this.approvalTaskRepository = approvalTaskRepository;
-    }
-
+    private final WorkflowOrchestratorService orchestratorService;
+   
     @Override
     @Transactional
     public UUID createWorkItem(WorkItemCreateRequest request, String createdBy) {
@@ -121,7 +109,13 @@ public class WorkItemServiceImpl implements WorkItemService {
 
         // Use state machine to submit (creates version and transitions to SUBMITTED)
         workItemStateMachineService.submit(workItemId, request.getContentRef(), submittedBy, request.getVariables());
-
+        
+        // start workflow 
+        //TODO: set created by from the token
+        if(request.getStartWorkflow() != null && request.getStartWorkflow() == Boolean.TRUE && request.getWorkflowDefId() != null) {
+        	orchestratorService.startWorkflow(workItemId, request.getWorkflowDefId(), "system");
+        }
+        
         // Find the active version that was just created
         Optional<WorkItemVersion> latestVersion = workItemVersionRepository
                 .findFirstByWorkItemIdAndIsActiveTrueOrderByVersionDesc(workItemId);

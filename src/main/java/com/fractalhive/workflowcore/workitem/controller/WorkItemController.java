@@ -172,10 +172,8 @@ public class WorkItemController {
     })
     public ResponseEntity<WorkItemSubmitResponse> submitWorkItemConvenience(
             @Parameter(description = "Submission request with optional workItemId, type, contentRef, and variables")
-            @Valid @RequestBody WorkItemSubmitRequest request,
-            @Parameter(description = "User ID submitting the work item", required = true, example = "user123")
-            @RequestParam String submittedBy) {
-        UUID versionId = workItemService.submitWorkItem(null, request, submittedBy);
+            @Valid @RequestBody WorkItemSubmitRequest request) {
+        UUID versionId = workItemService.submitWorkItem(null, request, "system");
         return ResponseEntity.ok(WorkItemSubmitResponse.builder().versionId(versionId).build());
     }
 

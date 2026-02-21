@@ -1,13 +1,12 @@
 package com.fractalhive.workflowcore.workitem.dto;
 
-import jakarta.validation.constraints.NotBlank;
+import java.util.Map;
+import java.util.UUID;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.util.Map;
-import java.util.UUID;
 
 /**
  * Request DTO for submitting a work item.
@@ -30,7 +29,6 @@ public class WorkItemSubmitRequest {
      */
     private String type;
 
-    @NotBlank(message = "Content reference cannot be blank")
     private String contentRef;
 
     /**
@@ -38,4 +36,8 @@ public class WorkItemSubmitRequest {
      * Examples: {"amount": 50000, "riskScore": 75, "templateId": "TEMPLATE_001"}
      */
     private Map<String, Object> variables;
+    
+    private Boolean startWorkflow;
+    
+    private UUID workflowDefId;
 }

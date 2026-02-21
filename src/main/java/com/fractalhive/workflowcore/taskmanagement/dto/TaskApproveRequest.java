@@ -1,5 +1,7 @@
 package com.fractalhive.workflowcore.taskmanagement.dto;
 
+import com.fractalhive.workflowcore.approval.enums.DecisionType;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,4 +20,5 @@ public class TaskApproveRequest {
      * Optional comments for the approval.
      */
     private String comments;
+    private DecisionType decisionType;
 }

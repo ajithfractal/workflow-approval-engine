@@ -22,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -94,6 +95,29 @@ public class TaskController {
         TaskResponse task = taskManagementService.getTask(taskId);
         return ResponseEntity.ok(task);
     }
+    
+    /**
+     * Approves & Reject task.
+     */
+    @PostMapping("/{taskId}/actions")
+    @Operation(
+            summary = "Approve a task",
+            description = "Records an approval decision for a task and advances the workflow if step completion criteria is met"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Task approved successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid request or task cannot be approved"),
+            @ApiResponse(responseCode = "404", description = "Task not found")
+    })
+    public ResponseEntity<Void> approveOrRejectTask(
+            @Parameter(description = "The task ID", required = true)
+            @PathVariable UUID taskId,
+            @Parameter(description = "Approval request with optional comments")
+            @Valid @RequestBody(required = true) TaskApproveRequest request) {
+		orchestratorService.handleApprovalDecision(taskId, "system", request.getDecisionType(), request.getComments());
+		return ResponseEntity.ok().build();
+    }
+
 
     /**
      * Approves a task.
