@@ -4,6 +4,7 @@ import com.fractalhive.workflowcore.approval.enums.DecisionType;
 import com.fractalhive.workflowcore.approval.enums.TaskStatus;
 import com.fractalhive.workflowcore.approval.service.ApprovalTaskStateMachineService;
 import com.fractalhive.workflowcore.common.dto.PaginatedResponse;
+import com.fractalhive.keycloak.util.SecurityUtils;
 import com.fractalhive.workflowcore.taskmanagement.dto.*;
 import com.fractalhive.workflowcore.taskmanagement.service.TaskManagementService;
 import com.fractalhive.workflowcore.workflow.service.WorkflowOrchestratorService;
@@ -114,7 +115,8 @@ public class TaskController {
             @PathVariable UUID taskId,
             @Parameter(description = "Approval request with optional comments")
             @Valid @RequestBody(required = true) TaskApproveRequest request) {
-		orchestratorService.handleApprovalDecision(taskId, "system", request.getDecisionType(), request.getComments());
+		String userId = SecurityUtils.getCurrentUsername();
+		orchestratorService.handleApprovalDecision(taskId, userId, request.getDecisionType(), request.getComments());
 		return ResponseEntity.ok().build();
     }
 
@@ -141,10 +143,9 @@ public class TaskController {
     public ResponseEntity<Void> approveTask(
             @Parameter(description = "The task ID", required = true)
             @PathVariable UUID taskId,
-            @Parameter(description = "The user ID approving the task", required = true, example = "user123")
-            @RequestParam String userId,
             @Parameter(description = "Approval request with optional comments")
             @Valid @RequestBody(required = false) TaskApproveRequest request) {
+        String userId = SecurityUtils.getCurrentUsername();
         String comments = request != null ? request.getComments() : null;
         orchestratorService.handleApprovalDecision(taskId, userId, DecisionType.APPROVED, comments);
         return ResponseEntity.ok().build();
@@ -172,10 +173,9 @@ public class TaskController {
     public ResponseEntity<Void> rejectTask(
             @Parameter(description = "The task ID", required = true)
             @PathVariable UUID taskId,
-            @Parameter(description = "The user ID rejecting the task", required = true, example = "user123")
-            @RequestParam String userId,
             @Parameter(description = "Rejection request with optional comments")
             @Valid @RequestBody(required = false) TaskRejectRequest request) {
+        String userId = SecurityUtils.getCurrentUsername();
         String comments = request != null ? request.getComments() : null;
         orchestratorService.handleApprovalDecision(taskId, userId, DecisionType.REJECTED, comments);
         return ResponseEntity.ok().build();
@@ -203,10 +203,9 @@ public class TaskController {
     public ResponseEntity<ApprovalCommentResponse> addComment(
             @Parameter(description = "The task ID", required = true)
             @PathVariable UUID taskId,
-            @Parameter(description = "The user ID adding the comment", required = true, example = "user123")
-            @RequestParam String userId,
             @Parameter(description = "Comment request")
             @Valid @RequestBody TaskCommentRequest request) {
+        String userId = SecurityUtils.getCurrentUsername();
         ApprovalCommentResponse comment = taskManagementService.addComment(taskId, request.getComment(), userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(comment);
     }
@@ -233,10 +232,9 @@ public class TaskController {
     public ResponseEntity<Void> delegateTask(
             @Parameter(description = "The task ID", required = true)
             @PathVariable UUID taskId,
-            @Parameter(description = "The current approver user ID", required = true, example = "user123")
-            @RequestParam String userId,
             @Parameter(description = "Delegation request with target user ID and optional reason")
             @Valid @RequestBody TaskDelegateRequest request) {
+        String userId = SecurityUtils.getCurrentUsername();
         approvalTaskStateMachineService.delegate(taskId, userId, request.getToUserId());
         return ResponseEntity.ok().build();
     }
@@ -263,10 +261,9 @@ public class TaskController {
     public ResponseEntity<TaskResponse> reassignTask(
             @Parameter(description = "The task ID", required = true)
             @PathVariable UUID taskId,
-            @Parameter(description = "The user ID performing the reassignment", required = true, example = "user123")
-            @RequestParam String userId,
             @Parameter(description = "Reassignment request")
             @Valid @RequestBody TaskReassignRequest request) {
+        String userId = SecurityUtils.getCurrentUsername();
         TaskResponse task = taskManagementService.reassignTask(taskId, request, userId);
         return ResponseEntity.ok(task);
     }

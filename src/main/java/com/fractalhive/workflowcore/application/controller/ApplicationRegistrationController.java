@@ -3,6 +3,7 @@ package com.fractalhive.workflowcore.application.controller;
 import com.fractalhive.workflowcore.application.dto.ApplicationRegistrationRequest;
 import com.fractalhive.workflowcore.application.dto.ApplicationRegistrationResponse;
 import com.fractalhive.workflowcore.application.service.ApplicationRegistrationService;
+import com.fractalhive.keycloak.util.SecurityUtils;
 import com.fractalhive.workflowcore.workflow.dto.CreateResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -39,13 +40,13 @@ public class ApplicationRegistrationController {
      * Registers a new application.
      *
      * @param request   the registration request
-     * @param createdBy the user creating the application
      * @return the created application ID
      */
     @PostMapping("/register")
+    @PreAuthorize("hasRole('WORKFLOW_ADMIN')")
     @Operation(
             summary = "Register new application",
-            description = "Registers a new application and creates a dedicated schema for data isolation"
+            description = "Registers a new application and creates a dedicated schema for data isolation. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Application registered successfully",
@@ -54,9 +55,8 @@ public class ApplicationRegistrationController {
     })
     public ResponseEntity<CreateResponse> registerApplication(
             @Parameter(description = "Application registration request")
-            @Valid @RequestBody ApplicationRegistrationRequest request,
-            @Parameter(description = "User ID creating the application", required = true, example = "admin")
-            @RequestParam String createdBy) {
+            @Valid @RequestBody ApplicationRegistrationRequest request) {
+        String createdBy = SecurityUtils.getCurrentUsername();
         UUID appId = registrationService.registerApplication(request, createdBy);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(CreateResponse.builder()
@@ -132,14 +132,13 @@ public class ApplicationRegistrationController {
      *
      * @param appId     the application ID
      * @param request   the update request
-     * @param updatedBy the user updating the application
      * @return success response
      */
     @PreAuthorize("hasRole('WORKFLOW_ADMIN')")
     @PutMapping("/{appId}")
     @Operation(
             summary = "Update application",
-            description = "Updates an existing application's configuration"
+            description = "Updates an existing application's configuration. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Application updated successfully"),
@@ -149,9 +148,8 @@ public class ApplicationRegistrationController {
             @Parameter(description = "The application ID", required = true)
             @PathVariable UUID appId,
             @Parameter(description = "Application update request")
-            @Valid @RequestBody ApplicationRegistrationRequest request,
-            @Parameter(description = "User ID updating the application", required = true, example = "admin")
-            @RequestParam String updatedBy) {
+            @Valid @RequestBody ApplicationRegistrationRequest request) {
+        String updatedBy = SecurityUtils.getCurrentUsername();
         registrationService.updateApplication(appId, request, updatedBy);
         return ResponseEntity.ok(CreateResponse.builder()
                 .id(appId)
@@ -163,14 +161,13 @@ public class ApplicationRegistrationController {
      * Deactivates an application.
      *
      * @param appId     the application ID
-     * @param updatedBy the user deactivating the application
      * @return success response
      */
     @PreAuthorize("hasRole('WORKFLOW_ADMIN')")
     @DeleteMapping("/{appId}")
     @Operation(
             summary = "Deactivate application",
-            description = "Deactivates an application (does not delete schema or data)"
+            description = "Deactivates an application (does not delete schema or data). Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Application deactivated successfully"),
@@ -178,9 +175,8 @@ public class ApplicationRegistrationController {
     })
     public ResponseEntity<CreateResponse> deactivateApplication(
             @Parameter(description = "The application ID", required = true)
-            @PathVariable UUID appId,
-            @Parameter(description = "User ID deactivating the application", required = true, example = "admin")
-            @RequestParam String updatedBy) {
+            @PathVariable UUID appId) {
+        String updatedBy = SecurityUtils.getCurrentUsername();
         registrationService.deactivateApplication(appId, updatedBy);
         return ResponseEntity.ok(CreateResponse.builder()
                 .id(appId)

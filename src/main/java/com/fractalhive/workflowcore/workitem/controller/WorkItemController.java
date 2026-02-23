@@ -1,5 +1,6 @@
 package com.fractalhive.workflowcore.workitem.controller;
 
+import com.fractalhive.keycloak.util.SecurityUtils;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemCreateRequest;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemResponse;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemSubmitRequest;
@@ -21,8 +22,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.ResponseStatus;
 
 import java.util.List;
 import java.util.UUID;
@@ -60,40 +61,37 @@ public class WorkItemController {
             @ApiResponse(responseCode = "200", description = "Successfully retrieved work items",
                     content = @Content(schema = @Schema(implementation = WorkItemResponse.class)))
     })
-    public ResponseEntity<List<WorkItemResponse>> listWorkItems(
+    public List<WorkItemResponse> listWorkItems(
             @Parameter(description = "Optional status filter", example = "DRAFT")
             @RequestParam(required = false) WorkItemStatus status,
             @Parameter(description = "Optional type filter", example = "contract")
             @RequestParam(required = false) String type) {
-        List<WorkItemResponse> workItems = workItemService.listWorkItems(status, type);
-        return ResponseEntity.ok(workItems);
+        return workItemService.listWorkItems(status, type);
     }
 
     /**
      * Creates a new work item.
      *
      * @param request   the work item creation request
-     * @param createdBy the user creating the work item
      * @return the created work item ID
      */
     @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "Create a new work item",
-            description = "Creates a new work item that can be submitted for approval workflow"
+            description = "Creates a new work item that can be submitted for approval workflow. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Work item created successfully",
                     content = @Content(schema = @Schema(implementation = WorkItemCreateResponse.class))),
             @ApiResponse(responseCode = "400", description = "Invalid request")
     })
-    public ResponseEntity<WorkItemCreateResponse> createWorkItem(
+    public WorkItemCreateResponse createWorkItem(
             @Parameter(description = "Work item creation request")
-            @Valid @RequestBody WorkItemCreateRequest request,
-            @Parameter(description = "User ID creating the work item", required = true, example = "user123")
-            @RequestParam String createdBy) {
+            @Valid @RequestBody WorkItemCreateRequest request) {
+        String createdBy = SecurityUtils.getCurrentUsername();
         UUID workItemId = workItemService.createWorkItem(request, createdBy);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(WorkItemCreateResponse.builder().workItemId(workItemId).build());
+        return WorkItemCreateResponse.builder().workItemId(workItemId).build();
     }
 
     /**
@@ -112,11 +110,10 @@ public class WorkItemController {
                     content = @Content(schema = @Schema(implementation = WorkItemResponse.class))),
             @ApiResponse(responseCode = "404", description = "Work item not found")
     })
-    public ResponseEntity<WorkItemResponse> getWorkItem(
+    public WorkItemResponse getWorkItem(
             @Parameter(description = "The work item ID", required = true)
             @PathVariable UUID workItemId) {
-        WorkItemResponse workItem = workItemService.getWorkItem(workItemId);
-        return ResponseEntity.ok(workItem);
+        return workItemService.getWorkItem(workItemId);
     }
 
     /**
@@ -124,13 +121,12 @@ public class WorkItemController {
      *
      * @param workItemId  the work item ID
      * @param request     the submission request
-     * @param submittedBy the user submitting the work item
      * @return the created version ID
      */
     @PostMapping("/{workItemId}/submit")
     @Operation(
             summary = "Submit work item for approval",
-            description = "Submits an existing work item to start the approval workflow process"
+            description = "Submits an existing work item to start the approval workflow process. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Work item submitted successfully",
@@ -138,15 +134,14 @@ public class WorkItemController {
             @ApiResponse(responseCode = "400", description = "Invalid request or work item cannot be submitted"),
             @ApiResponse(responseCode = "404", description = "Work item not found")
     })
-    public ResponseEntity<WorkItemSubmitResponse> submitWorkItem(
+    public WorkItemSubmitResponse submitWorkItem(
             @Parameter(description = "The work item ID", required = true)
             @PathVariable UUID workItemId,
             @Parameter(description = "Submission request with content reference and variables")
-            @Valid @RequestBody WorkItemSubmitRequest request,
-            @Parameter(description = "User ID submitting the work item", required = true, example = "user123")
-            @RequestParam String submittedBy) {
+            @Valid @RequestBody WorkItemSubmitRequest request) {
+        String submittedBy = SecurityUtils.getCurrentUsername();
         UUID versionId = workItemService.submitWorkItem(workItemId, request, submittedBy);
-        return ResponseEntity.ok(WorkItemSubmitResponse.builder().versionId(versionId).build());
+        return WorkItemSubmitResponse.builder().versionId(versionId).build();
     }
 
     /**
@@ -170,11 +165,12 @@ public class WorkItemController {
             @ApiResponse(responseCode = "400", description = "Invalid request or work item cannot be submitted"),
             @ApiResponse(responseCode = "404", description = "Work item not found (if workItemId provided)")
     })
-    public ResponseEntity<WorkItemSubmitResponse> submitWorkItemConvenience(
+    public WorkItemSubmitResponse submitWorkItemConvenience(
             @Parameter(description = "Submission request with optional workItemId, type, contentRef, and variables")
             @Valid @RequestBody WorkItemSubmitRequest request) {
-        UUID versionId = workItemService.submitWorkItem(null, request, "system");
-        return ResponseEntity.ok(WorkItemSubmitResponse.builder().versionId(versionId).build());
+        String submittedBy = SecurityUtils.getCurrentUsername();
+        UUID versionId = workItemService.submitWorkItem(null, request, submittedBy);
+        return WorkItemSubmitResponse.builder().versionId(versionId).build();
     }
 
     /**
@@ -229,13 +225,12 @@ public class WorkItemController {
      * Transitions the work item from APPROVED or REJECTED status to ARCHIVED.
      *
      * @param workItemId the work item ID
-     * @param userId     the user archiving the work item
      * @return no content
      */
     @PostMapping("/{workItemId}/archive")
     @Operation(
             summary = "Archive work item",
-            description = "Manually archives a work item, transitioning it from APPROVED or REJECTED status to ARCHIVED"
+            description = "Manually archives a work item, transitioning it from APPROVED or REJECTED status to ARCHIVED. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Work item archived successfully"),
@@ -244,9 +239,8 @@ public class WorkItemController {
     })
     public ResponseEntity<Void> archiveWorkItem(
             @Parameter(description = "The work item ID", required = true)
-            @PathVariable UUID workItemId,
-            @Parameter(description = "User ID archiving the work item", required = true, example = "user123")
-            @RequestParam String userId) {
+            @PathVariable UUID workItemId) {
+        String userId = SecurityUtils.getCurrentUsername();
         workItemStateMachineService.archive(workItemId, userId);
         return ResponseEntity.ok().build();
     }

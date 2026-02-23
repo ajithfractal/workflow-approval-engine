@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,9 +12,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.fractalhive.keycloak.util.SecurityUtils;
 import com.fractalhive.workflowcore.workflow.dto.ApproverRequest;
 import com.fractalhive.workflowcore.workflow.dto.ApproversCreateResponse;
 import com.fractalhive.workflowcore.workflow.dto.CreateResponse;
@@ -66,39 +66,36 @@ public class WorkflowDefinitionController {
             @ApiResponse(responseCode = "200", description = "Successfully retrieved workflows",
                     content = @Content(schema = @Schema(implementation = WorkflowDefinitionResponse.class)))
     })
-    public ResponseEntity<List<WorkflowDefinitionResponse>> listWorkflows() {
-        List<WorkflowDefinitionResponse> workflows = workflowDefinitionService.listWorkflows();
-        return ResponseEntity.ok(workflows);
+    public List<WorkflowDefinitionResponse> listWorkflows() {
+        return workflowDefinitionService.listWorkflows();
     }
 
     /**
      * Creates a new workflow definition.
      *
      * @param request   the workflow definition creation request
-     * @param createdBy the user creating the workflow
      * @return the created workflow ID
      */
     @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "Create workflow definition",
-            description = "Creates a new workflow definition with a name and version"
+            description = "Creates a new workflow definition with a name and version. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Workflow created successfully",
                     content = @Content(schema = @Schema(implementation = CreateResponse.class))),
             @ApiResponse(responseCode = "400", description = "Invalid request or duplicate workflow name+version")
     })
-    public ResponseEntity<CreateResponse> createWorkflow(
+    public CreateResponse createWorkflow(
             @Parameter(description = "Workflow definition creation request")
-            @Valid @RequestBody WorkflowDefinitionCreateRequest request,
-            @Parameter(description = "User ID creating the workflow", required = true, example = "admin")
-            @RequestParam String createdBy) {
+            @Valid @RequestBody WorkflowDefinitionCreateRequest request) {
+        String createdBy = SecurityUtils.getCurrentUsername();
         UUID workflowId = workflowDefinitionService.createWorkflow(request, createdBy);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(CreateResponse.builder()
-                        .id(workflowId)
-                        .message("Workflow created successfully")
-                        .build());
+        return CreateResponse.builder()
+                .id(workflowId)
+                .message("Workflow created successfully")
+                .build();
     }
 
     /**
@@ -117,11 +114,10 @@ public class WorkflowDefinitionController {
                     content = @Content(schema = @Schema(implementation = WorkflowDefinitionResponse.class))),
             @ApiResponse(responseCode = "404", description = "Workflow not found")
     })
-    public ResponseEntity<WorkflowDefinitionResponse> getWorkflow(
+    public WorkflowDefinitionResponse getWorkflow(
             @Parameter(description = "The workflow ID", required = true)
             @PathVariable UUID workflowId) {
-        WorkflowDefinitionResponse workflow = workflowDefinitionService.getWorkflow(workflowId);
-        return ResponseEntity.ok(workflow);
+        return workflowDefinitionService.getWorkflow(workflowId);
     }
 
     /**
@@ -130,13 +126,12 @@ public class WorkflowDefinitionController {
      *
      * @param workflowId the workflow ID
      * @param request     the update request
-     * @param updatedBy   the user updating the workflow
      * @return the workflow ID (existing if updated, new if versioned)
      */
     @PutMapping("/{workflowId}")
     @Operation(
             summary = "Update workflow definition",
-            description = "Updates a workflow definition. If workflow instances exist, creates a new version instead of updating the existing one"
+            description = "Updates a workflow definition. If workflow instances exist, creates a new version instead of updating the existing one. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Workflow updated successfully",
@@ -150,9 +145,8 @@ public class WorkflowDefinitionController {
             @Parameter(description = "The workflow ID", required = true)
             @PathVariable UUID workflowId,
             @Parameter(description = "Workflow update request")
-            @Valid @RequestBody WorkflowDefinitionCreateRequest request,
-            @Parameter(description = "User ID updating the workflow", required = true, example = "admin")
-            @RequestParam String updatedBy) {
+            @Valid @RequestBody WorkflowDefinitionCreateRequest request) {
+        String updatedBy = SecurityUtils.getCurrentUsername();
         UUID resultWorkflowId = workflowDefinitionService.updateWorkflow(workflowId, request, updatedBy);
         
         if (resultWorkflowId.equals(workflowId)) {
@@ -178,6 +172,7 @@ public class WorkflowDefinitionController {
      * @return no content
      */
     @DeleteMapping("/{workflowId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(
             summary = "Delete workflow definition",
             description = "Deletes a workflow definition. Note: This will fail if workflow instances exist"
@@ -187,11 +182,10 @@ public class WorkflowDefinitionController {
             @ApiResponse(responseCode = "400", description = "Cannot delete workflow with existing instances"),
             @ApiResponse(responseCode = "404", description = "Workflow not found")
     })
-    public ResponseEntity<Void> deleteWorkflow(
+    public void deleteWorkflow(
             @Parameter(description = "The workflow ID", required = true)
             @PathVariable UUID workflowId) {
         workflowDefinitionService.deleteWorkflow(workflowId);
-        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -199,13 +193,13 @@ public class WorkflowDefinitionController {
      *
      * @param workflowId the workflow ID
      * @param request    the stage definition request
-     * @param createdBy  the user creating the stage
      * @return the created stage ID
      */
     @PostMapping("/{workflowId}/stages")
+    @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "Create stage for workflow",
-            description = "Creates a new stage for a workflow definition. Optionally includes steps during creation"
+            description = "Creates a new stage for a workflow definition. Optionally includes steps during creation. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Stage created successfully",
@@ -213,19 +207,17 @@ public class WorkflowDefinitionController {
             @ApiResponse(responseCode = "400", description = "Invalid request or validation error"),
             @ApiResponse(responseCode = "404", description = "Workflow not found")
     })
-    public ResponseEntity<CreateResponse> createStage(
+    public CreateResponse createStage(
             @Parameter(description = "The workflow ID", required = true)
             @PathVariable UUID workflowId,
             @Parameter(description = "Stage definition request with optional steps")
-            @Valid @RequestBody StageDefinitionRequest request,
-            @Parameter(description = "User ID creating the stage", required = true, example = "admin")
-            @RequestParam String createdBy) {
+            @Valid @RequestBody StageDefinitionRequest request) {
+        String createdBy = SecurityUtils.getCurrentUsername();
         UUID stageId = workflowDefinitionService.createStage(workflowId, request, createdBy);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(CreateResponse.builder()
-                        .id(stageId)
-                        .message("Stage created successfully")
-                        .build());
+        return CreateResponse.builder()
+                .id(stageId)
+                .message("Stage created successfully")
+                .build();
     }
 
     /**
@@ -233,28 +225,26 @@ public class WorkflowDefinitionController {
      *
      * @param stageId   the stage ID
      * @param request   the stage update request
-     * @param updatedBy the user updating the stage
      * @return no content
      */
     @PutMapping("/stages/{stageId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(
             summary = "Update stage definition",
-            description = "Updates an existing stage definition"
+            description = "Updates an existing stage definition. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Stage updated successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid request"),
             @ApiResponse(responseCode = "404", description = "Stage not found")
     })
-    public ResponseEntity<Void> updateStage(
+    public void updateStage(
             @Parameter(description = "The stage ID", required = true)
             @PathVariable UUID stageId,
             @Parameter(description = "Stage update request")
-            @Valid @RequestBody StageDefinitionRequest request,
-            @Parameter(description = "User ID updating the stage", required = true, example = "admin")
-            @RequestParam String updatedBy) {
+            @Valid @RequestBody StageDefinitionRequest request) {
+        String updatedBy = SecurityUtils.getCurrentUsername();
         workflowDefinitionService.updateStage(stageId, request, updatedBy);
-        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -264,6 +254,7 @@ public class WorkflowDefinitionController {
      * @return no content
      */
     @DeleteMapping("/stages/{stageId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(
             summary = "Delete stage definition",
             description = "Deletes a stage definition and all its steps"
@@ -272,11 +263,10 @@ public class WorkflowDefinitionController {
             @ApiResponse(responseCode = "204", description = "Stage deleted successfully"),
             @ApiResponse(responseCode = "404", description = "Stage not found")
     })
-    public ResponseEntity<Void> deleteStage(
+    public void deleteStage(
             @Parameter(description = "The stage ID", required = true)
             @PathVariable UUID stageId) {
         workflowDefinitionService.deleteStage(stageId);
-        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -284,13 +274,13 @@ public class WorkflowDefinitionController {
      *
      * @param stageId   the stage ID
      * @param request   the step definition request
-     * @param createdBy the user creating the step
      * @return the created step ID
      */
     @PostMapping("/stages/{stageId}/steps")
+    @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "Add step to stage",
-            description = "Adds a new step to a stage definition. Optionally includes approvers during creation"
+            description = "Adds a new step to a stage definition. Optionally includes approvers during creation. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Step created successfully",
@@ -298,19 +288,17 @@ public class WorkflowDefinitionController {
             @ApiResponse(responseCode = "400", description = "Invalid request or validation error"),
             @ApiResponse(responseCode = "404", description = "Stage not found")
     })
-    public ResponseEntity<CreateResponse> addStepToStage(
+    public CreateResponse addStepToStage(
             @Parameter(description = "The stage ID", required = true)
             @PathVariable UUID stageId,
             @Parameter(description = "Step definition request with optional approvers")
-            @Valid @RequestBody StepDefinitionRequest request,
-            @Parameter(description = "User ID creating the step", required = true, example = "admin")
-            @RequestParam String createdBy) {
+            @Valid @RequestBody StepDefinitionRequest request) {
+        String createdBy = SecurityUtils.getCurrentUsername();
         UUID stepId = workflowDefinitionService.addStepToStage(stageId, request, createdBy);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(CreateResponse.builder()
-                        .id(stepId)
-                        .message("Step created successfully")
-                        .build());
+        return CreateResponse.builder()
+                .id(stepId)
+                .message("Step created successfully")
+                .build();
     }
 
     /**
@@ -318,28 +306,26 @@ public class WorkflowDefinitionController {
      *
      * @param stepId    the step ID
      * @param request   the step update request
-     * @param updatedBy the user updating the step
      * @return no content
      */
     @PutMapping("/steps/{stepId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(
             summary = "Update step definition",
-            description = "Updates an existing step definition"
+            description = "Updates an existing step definition. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Step updated successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid request"),
             @ApiResponse(responseCode = "404", description = "Step not found")
     })
-    public ResponseEntity<Void> updateStep(
+    public void updateStep(
             @Parameter(description = "The step ID", required = true)
             @PathVariable UUID stepId,
             @Parameter(description = "Step update request")
-            @Valid @RequestBody StepDefinitionRequest request,
-            @Parameter(description = "User ID updating the step", required = true, example = "admin")
-            @RequestParam String updatedBy) {
+            @Valid @RequestBody StepDefinitionRequest request) {
+        String updatedBy = SecurityUtils.getCurrentUsername();
         workflowDefinitionService.updateStep(stepId, request, updatedBy);
-        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -349,6 +335,7 @@ public class WorkflowDefinitionController {
      * @return no content
      */
     @DeleteMapping("/steps/{stepId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(
             summary = "Delete step definition",
             description = "Deletes a step definition from a workflow"
@@ -357,11 +344,10 @@ public class WorkflowDefinitionController {
             @ApiResponse(responseCode = "204", description = "Step deleted successfully"),
             @ApiResponse(responseCode = "404", description = "Step not found")
     })
-    public ResponseEntity<Void> deleteStep(
+    public void deleteStep(
             @Parameter(description = "The step ID", required = true)
             @PathVariable UUID stepId) {
         workflowDefinitionService.deleteStep(stepId);
-        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -370,13 +356,13 @@ public class WorkflowDefinitionController {
      *
      * @param stepId    the step ID
      * @param request   wrapper containing list of approver requests
-     * @param createdBy the user adding the approvers
      * @return list of created approver IDs
      */
     @PostMapping("/steps/{stepId}/approvers")
+    @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "Add approvers to step",
-            description = "Adds one or more approvers to a workflow step. Validates N_OF_M rule constraints"
+            description = "Adds one or more approvers to a workflow step. Validates N_OF_M rule constraints. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Approvers added successfully",
@@ -384,20 +370,18 @@ public class WorkflowDefinitionController {
             @ApiResponse(responseCode = "400", description = "Invalid request or N_OF_M validation failed"),
             @ApiResponse(responseCode = "404", description = "Step not found")
     })
-    public ResponseEntity<ApproversCreateResponse> addApprovers(
+    public ApproversCreateResponse addApprovers(
             @Parameter(description = "The step ID", required = true)
             @PathVariable UUID stepId,
             @Parameter(description = "List of approver requests")
-            @Valid @RequestBody List<ApproverRequest> request,
-            @Parameter(description = "User ID adding the approvers", required = true, example = "admin")
-            @RequestParam String createdBy) {
+            @Valid @RequestBody List<ApproverRequest> request) {
+        String createdBy = SecurityUtils.getCurrentUsername();
         List<UUID> approverIds = workflowDefinitionService.addApprovers(stepId, request, createdBy);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApproversCreateResponse.builder()
-                        .approverIds(approverIds)
-                        .message(String.format("Successfully added %d approver(s)", approverIds.size()))
-                        .count(approverIds.size())
-                        .build());
+        return ApproversCreateResponse.builder()
+                .approverIds(approverIds)
+                .message(String.format("Successfully added %d approver(s)", approverIds.size()))
+                .count(approverIds.size())
+                .build();
     }
 
     /**
@@ -407,6 +391,7 @@ public class WorkflowDefinitionController {
      * @return no content
      */
     @DeleteMapping("/approvers/{approverId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(
             summary = "Remove approver from step",
             description = "Removes an approver from a workflow step. Validates N_OF_M rule constraints after removal"
@@ -416,60 +401,55 @@ public class WorkflowDefinitionController {
             @ApiResponse(responseCode = "400", description = "Cannot remove approver (N_OF_M validation would fail)"),
             @ApiResponse(responseCode = "404", description = "Approver not found")
     })
-    public ResponseEntity<Void> removeApprover(
+    public void removeApprover(
             @Parameter(description = "The approver ID", required = true)
             @PathVariable UUID approverId) {
         workflowDefinitionService.removeApprover(approverId);
-        return ResponseEntity.noContent().build();
     }
 
     /**
      * Activates a workflow version.
      *
      * @param workflowId the workflow ID
-     * @param userId     the user activating the workflow
      * @return no content
      */
     @PostMapping("/{workflowId}/activate")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(
             summary = "Activate workflow version",
-            description = "Activates a workflow version, making it available for use in new workflow instances"
+            description = "Activates a workflow version, making it available for use in new workflow instances. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Workflow activated successfully"),
             @ApiResponse(responseCode = "404", description = "Workflow not found")
     })
-    public ResponseEntity<Void> activateWorkflow(
+    public void activateWorkflow(
             @Parameter(description = "The workflow ID", required = true)
-            @PathVariable UUID workflowId,
-            @Parameter(description = "User ID activating the workflow", required = true, example = "admin")
-            @RequestParam String userId) {
+            @PathVariable UUID workflowId) {
+        String userId = SecurityUtils.getCurrentUsername();
         workflowDefinitionService.activateVersion(workflowId, userId);
-        return ResponseEntity.noContent().build();
     }
 
     /**
      * Deactivates a workflow version.
      *
      * @param workflowId the workflow ID
-     * @param userId      the user deactivating the workflow
      * @return no content
      */
     @PostMapping("/{workflowId}/deactivate")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(
             summary = "Deactivate workflow version",
-            description = "Deactivates a workflow version, preventing it from being used in new workflow instances"
+            description = "Deactivates a workflow version, preventing it from being used in new workflow instances. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Workflow deactivated successfully"),
             @ApiResponse(responseCode = "404", description = "Workflow not found")
     })
-    public ResponseEntity<Void> deactivateWorkflow(
+    public void deactivateWorkflow(
             @Parameter(description = "The workflow ID", required = true)
-            @PathVariable UUID workflowId,
-            @Parameter(description = "User ID deactivating the workflow", required = true, example = "admin")
-            @RequestParam String userId) {
+            @PathVariable UUID workflowId) {
+        String userId = SecurityUtils.getCurrentUsername();
         workflowDefinitionService.deactivateVersion(workflowId, userId);
-        return ResponseEntity.noContent().build();
     }
 }

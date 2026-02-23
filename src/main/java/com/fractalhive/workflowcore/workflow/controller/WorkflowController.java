@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fractalhive.workflowcore.approval.enums.DecisionType;
+import com.fractalhive.keycloak.util.SecurityUtils;
 import com.fractalhive.workflowcore.workflow.service.WorkflowOrchestratorService;
 
 @RestController
@@ -21,21 +22,21 @@ public class WorkflowController {
 
     @PostMapping("/start")
     public UUID startWorkflow(@RequestParam UUID workItemId, 
-                              @RequestParam UUID workflowDefId,
-                              @RequestParam String userId) {
+                              @RequestParam UUID workflowDefId) {
+        String userId = SecurityUtils.getCurrentUsername();
         return orchestrator.startWorkflow(workItemId, workflowDefId, userId);
     }
 
     @PostMapping("/tasks/{taskId}/approve")
     public void approveTask(@PathVariable UUID taskId,
-                           @RequestParam String userId,
                            @RequestParam(required = false) String comments) {
+        String userId = SecurityUtils.getCurrentUsername();
         orchestrator.handleApprovalDecision(taskId, userId, DecisionType.APPROVED, comments);
     }
 
     @PostMapping("/{instanceId}/cancel")
-    public void cancelWorkflow(@PathVariable UUID instanceId,
-                              @RequestParam String userId) {
+    public void cancelWorkflow(@PathVariable UUID instanceId) {
+        String userId = SecurityUtils.getCurrentUsername();
         orchestrator.cancelWorkflow(instanceId, userId);
     }
 }

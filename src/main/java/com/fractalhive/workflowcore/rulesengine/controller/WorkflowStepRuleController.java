@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.fractalhive.keycloak.util.SecurityUtils;
 import com.fractalhive.workflowcore.rulesengine.dto.CreateRuleResponse;
 import com.fractalhive.workflowcore.rulesengine.dto.RuleCreateRequest;
 import com.fractalhive.workflowcore.rulesengine.dto.RuleResponse;
@@ -47,15 +48,13 @@ public class WorkflowStepRuleController {
     /**
      * Creates a new rule for a workflow step.
      *
-     * @param stepDefinitionId the step definition ID
      * @param request          the rule creation request
-     * @param createdBy        the user creating the rule
      * @return the created rule ID
      */
     @PostMapping("/rules")
     @Operation(
             summary = "Create a rule for a workflow step",
-            description = "Creates a new rule (auto-approve, skip step, route approver, etc.) for a workflow step"
+            description = "Creates a new rule (auto-approve, skip step, route approver, etc.) for a workflow step. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Rule created successfully",
@@ -65,9 +64,8 @@ public class WorkflowStepRuleController {
     })
     public ResponseEntity<CreateRuleResponse> createRule(
             @Parameter(description = "Rule creation request")
-            @Valid @RequestBody RuleCreateRequest request,
-            @Parameter(description = "User ID creating the rule", required = true, example = "user123")
-            @RequestParam String createdBy) {
+            @Valid @RequestBody RuleCreateRequest request) {
+        String createdBy = SecurityUtils.getCurrentUsername();
         UUID ruleId = ruleService.createRule(request, createdBy);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(CreateRuleResponse.builder().ruleId(ruleId).build());
@@ -126,13 +124,12 @@ public class WorkflowStepRuleController {
      *
      * @param ruleId    the rule ID
      * @param request   the update request
-     * @param updatedBy the user updating the rule
      * @return no content
      */
     @PutMapping("/rules/{ruleId}")
     @Operation(
             summary = "Update a rule",
-            description = "Updates an existing rule. Note: stepDefinitionId cannot be changed."
+            description = "Updates an existing rule. Note: stepDefinitionId cannot be changed. Username is extracted from JWT token."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Rule updated successfully"),
@@ -143,9 +140,8 @@ public class WorkflowStepRuleController {
             @Parameter(description = "The rule ID", required = true)
             @PathVariable UUID ruleId,
             @Parameter(description = "Rule update request")
-            @Valid @RequestBody RuleCreateRequest request,
-            @Parameter(description = "User ID updating the rule", required = true, example = "user123")
-            @RequestParam String updatedBy) {
+            @Valid @RequestBody RuleCreateRequest request) {
+        String updatedBy = SecurityUtils.getCurrentUsername();
         ruleService.updateRule(ruleId, request, updatedBy);
         return ResponseEntity.ok().build();
     }
