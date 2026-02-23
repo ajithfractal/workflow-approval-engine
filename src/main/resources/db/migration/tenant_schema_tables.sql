@@ -1,43 +1,12 @@
 -- ============================================================================
--- Workflow Engine Database Migration
--- Version: 1.0.0
--- Description: Initial schema creation for all workflow engine tables
+-- Tenant Schema Database Migration
+-- Description: Creates all workflow engine tables in a tenant schema
+-- Usage: This file is executed when a new tenant schema is created.
+--        The {SCHEMA_NAME} placeholder will be replaced with the actual schema name.
 -- ============================================================================
 
--- ============================================================================
--- Schema: workflow_master
--- Description: Master schema for application registration (not tenant-specific)
--- ============================================================================
-
--- Create workflow_master schema if it doesn't exist
-CREATE SCHEMA IF NOT EXISTS workflow_master;
-
--- ============================================================================
--- Table: workflow_master.registered_application
--- Description: Registered applications in the workflow engine
--- ============================================================================
-CREATE TABLE IF NOT EXISTS workflow_master.registered_application (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    application_name VARCHAR(100) NOT NULL UNIQUE,
-    application_code VARCHAR(50) NOT NULL UNIQUE,
-    api_endpoints JSONB NOT NULL,
-    api_key VARCHAR(255),
-    schema_name VARCHAR(50) NOT NULL UNIQUE,
-    active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by VARCHAR(50) NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE,
-    updated_by VARCHAR(50)
-);
-
--- Create index on schema_name for faster lookups
-CREATE INDEX IF NOT EXISTS idx_registered_application_schema_name 
-    ON workflow_master.registered_application(schema_name);
-
--- ============================================================================
--- Tenant Schema Tables (created in each tenant schema)
--- These tables are created per tenant schema (e.g., app_webapp1, app_webapp2)
--- ============================================================================
+-- Set search path to the target schema
+SET search_path TO {SCHEMA_NAME}, workflow_master;
 
 -- ============================================================================
 -- Table: work_item
@@ -103,6 +72,7 @@ CREATE TABLE IF NOT EXISTS workflow_definition (
     created_by VARCHAR(50) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE,
     updated_by VARCHAR(50),
+    visual_structure JSONB,
     CONSTRAINT uk_workflow_definition_name_version UNIQUE (name, version)
 );
 
@@ -390,5 +360,5 @@ CREATE INDEX IF NOT EXISTS idx_approval_comment_commented_at
     ON approval_comment(approval_task_id, commented_at DESC);
 
 -- ============================================================================
--- End of Migration
+-- End of Tenant Schema Migration
 -- ============================================================================

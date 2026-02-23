@@ -1,21 +1,18 @@
 package com.fractalhive.workflowcore.tenant;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.HashMap;
-import java.util.Map;
 
 import javax.sql.DataSource;
 
-import org.hibernate.SessionFactory;
-import org.hibernate.boot.Metadata;
-import org.hibernate.boot.MetadataSources;
-import org.hibernate.boot.registry.StandardServiceRegistry;
-import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StreamUtils;
 
-import jakarta.persistence.EntityManagerFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -25,9 +22,10 @@ import lombok.extern.slf4j.Slf4j;
 public class TenantSchemaInitializer {
 
     private final DataSource dataSource;
-    private final EntityManagerFactory entityManagerFactory;
     
     public static final String DEFAULT_SCHEMA = "workflow_master";
+    private static final String MIGRATION_FILE_PATH = "db/migration/tenant_schema_tables.sql";
+    private static final String SCHEMA_NAME_PLACEHOLDER = "{SCHEMA_NAME}";
 
     public void initializeSchema(String schemaName) {
         String sanitized = sanitizeSchemaName(schemaName);
@@ -39,11 +37,11 @@ public class TenantSchemaInitializer {
 
             setSearchPath(connection, sanitized);
 
-            createTablesInSchema(sanitized);
+            createTablesInSchema(connection, sanitized);
 
             log.info("Schema '{}' initialized successfully", sanitized);
 
-        } catch (SQLException e) {
+        } catch (SQLException | IOException e) {
             log.error("Failed to initialize schema '{}'", sanitized, e);
             throw new RuntimeException("Schema initialization failed for: " + sanitized, e);
         }
@@ -62,47 +60,100 @@ public class TenantSchemaInitializer {
         }
     }
 
-    private void createTablesInSchema(String schemaName) {
-        // Unwrap Hibernate SessionFactory to get its service registry and settings
-        SessionFactory sessionFactory = entityManagerFactory.unwrap(SessionFactory.class);
-
-        // Copy existing Hibernate properties and override schema
-        Map<String, Object> settings = new HashMap<>(
-                sessionFactory.getProperties()
-        );
-        settings.put("hibernate.default_schema", schemaName);
-        settings.put("hibernate.ddl-auto", "update");
-
-        StandardServiceRegistry serviceRegistry = new StandardServiceRegistryBuilder()
-                .applySettings(settings)
-                .build();
-
+    private void createTablesInSchema(Connection connection, String schemaName) throws SQLException, IOException {
+        // Ensure we're in a transaction
+        boolean autoCommit = connection.getAutoCommit();
         try {
-            MetadataSources metadataSources = new MetadataSources(serviceRegistry);
-            registerEntities(metadataSources);
-
-            Metadata metadata = metadataSources.buildMetadata();
-
-            // Hibernate 6 way — use SchemaManager directly
-            metadata.buildSessionFactory()
-                    .getSchemaManager()
-                    .exportMappedObjects(true); // true = create if not exists
-
-            log.debug("Tables created in schema: {}", schemaName);
-
+            connection.setAutoCommit(false);
+            
+            String migrationSql = loadMigrationSql();
+            String sqlWithSchema = migrationSql.replace(SCHEMA_NAME_PLACEHOLDER, schemaName);
+            
+            setSearchPath(connection, schemaName);
+            log.info("Executing tenant schema migration for: {}", schemaName);
+            executeSqlScript(connection, sqlWithSchema);
+            
+            // Commit the transaction
+            connection.commit();
+            log.info("Committed tenant schema migration transaction for: {}", schemaName);
+            
+        } catch (SQLException | IOException e) {
+            log.error("Error during tenant schema migration for {}, rolling back transaction", schemaName, e);
+            try {
+                connection.rollback();
+                log.error("Transaction rolled back for schema: {}", schemaName);
+            } catch (SQLException rollbackEx) {
+                log.error("Failed to rollback transaction for schema: {}", schemaName, rollbackEx);
+            }
+            throw e;
         } finally {
-            StandardServiceRegistryBuilder.destroy(serviceRegistry);
+            // Restore original auto-commit setting
+            connection.setAutoCommit(autoCommit);
         }
     }
 
-	private void registerEntities(MetadataSources metadataSources) {
-		metadataSources.addPackage("com.fractalhive.workflowcore.workflow.entity");
-		metadataSources.addPackage("com.fractalhive.workflowcore.approval.entity");
-		metadataSources.addPackage("com.fractalhive.workflowcore.workitem.entity");
-		metadataSources.addPackage("com.fractalhive.workflowcore.rulesengine.entity");
-		metadataSources.addPackage("com.fractalhive.workflowcore.application.entity");
-		metadataSources.addPackage("com.fractalhive.workflowcore.common.entity");
-	}
+    private String loadMigrationSql() throws IOException {
+        ClassPathResource resource = new ClassPathResource(MIGRATION_FILE_PATH);
+        try (InputStream inputStream = resource.getInputStream()) {
+            return StreamUtils.copyToString(inputStream, StandardCharsets.UTF_8);
+        }
+    }
+
+    private void executeSqlScript(Connection connection, String sqlScript) throws SQLException {
+        // Remove single-line comments (-- to end of line) but preserve the line structure
+        String cleanedScript = sqlScript.replaceAll("(?m)^\\s*--.*$", ""); // Remove comment-only lines
+        cleanedScript = cleanedScript.replaceAll("--[^\r\n]*", ""); // Remove inline comments
+        
+        // Split SQL script by semicolon
+        String[] statements = cleanedScript.split(";");
+        int statementCount = 0;
+        int executedCount = 0;
+        int skippedCount = 0;
+        
+        try (Statement stmt = connection.createStatement()) {
+            for (String statement : statements) {
+                String trimmed = statement.trim().replaceAll("\\s+", " "); // Normalize whitespace
+                
+                // Skip empty statements
+                if (trimmed.isEmpty() || trimmed.matches("^\\s*$")) {
+                    skippedCount++;
+                    continue;
+                }
+                
+                statementCount++;
+                try {
+                    log.debug("Executing statement #{}: {}", statementCount, trimmed.substring(0, Math.min(100, trimmed.length())));
+                    stmt.execute(trimmed);
+                    executedCount++;
+                    
+                    String logMessage = trimmed.substring(0, Math.min(150, trimmed.length()));
+                    if (trimmed.toUpperCase().startsWith("CREATE TABLE")) {
+                        log.info("✓ Executed CREATE TABLE statement #{}: {}", executedCount, logMessage);
+                    } else if (trimmed.toUpperCase().startsWith("CREATE INDEX")) {
+                        log.info("✓ Executed CREATE INDEX statement #{}: {}", executedCount, logMessage);
+                    } else if (trimmed.toUpperCase().startsWith("CREATE SCHEMA")) {
+                        log.info("✓ Executed CREATE SCHEMA statement #{}: {}", executedCount, logMessage);
+                    } else if (trimmed.toUpperCase().startsWith("SET ")) {
+                        log.debug("✓ Executed SET statement #{}: {}", executedCount, logMessage);
+                    } else {
+                        log.debug("✓ Executed SQL statement #{}: {}", executedCount, logMessage);
+                    }
+                } catch (SQLException e) {
+                    log.error("✗ Failed to execute SQL statement #{}", statementCount);
+                    log.error("✗ SQL Error Code: {}, SQL State: {}", e.getErrorCode(), e.getSQLState());
+                    log.error("✗ Error Message: {}", e.getMessage());
+                    log.error("✗ SQL statement (first 300 chars): {}", trimmed.substring(0, Math.min(300, trimmed.length())));
+                    if (trimmed.length() > 300) {
+                        log.error("✗ SQL statement (remaining): {}", trimmed.substring(300));
+                    }
+                    throw e;
+                }
+            }
+            
+            log.info("SQL execution summary: {} statements processed, {} executed, {} skipped", 
+                    statementCount, executedCount, skippedCount);
+        }
+    }
 	
 	private String sanitizeSchemaName(String schemaName) {
         if (schemaName == null || schemaName.trim().isEmpty()) {
