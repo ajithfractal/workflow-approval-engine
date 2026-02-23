@@ -1,11 +1,36 @@
 package com.fractalhive.workflowcore.rulesengine.controller;
 
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.Common.INVALID_REQUEST;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.Common.NOT_FOUND;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.ResponseCodes.BAD_REQUEST_400;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.ResponseCodes.CREATED_201;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.ResponseCodes.NOT_FOUND_404;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.ResponseCodes.OK_200;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.DESC_CREATE;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.DESC_DELETE;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.DESC_GET_BY_ID;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.DESC_UPDATE;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.PARAM_CREATE_REQUEST;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.PARAM_UPDATE_REQUEST;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.RESP_CREATED_SUCCESS;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.RESP_DELETED_SUCCESS;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.RESP_UPDATED_SUCCESS;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.SUMMARY_CREATE;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.SUMMARY_DELETE;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.SUMMARY_GET_BY_ID;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowDefinition.SUMMARY_UPDATE;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowStepRule.DESC_GET_ALL;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowStepRule.PARAM_RULE_ID;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowStepRule.PARAM_STEP_DEFINITION_ID;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowStepRule.RESP_RETRIEVED_RULE;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowStepRule.RESP_RETRIEVED_RULES;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkflowStepRule.SUMMARY_GET_ALL;
+
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -13,7 +38,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fractalhive.keycloak.util.SecurityUtils;
@@ -45,126 +70,91 @@ public class WorkflowStepRuleController {
         this.ruleService = ruleService;
     }
 
-    /**
-     * Creates a new rule for a workflow step.
-     *
-     * @param request          the rule creation request
-     * @return the created rule ID
-     */
     @PostMapping("/rules")
+    @ResponseStatus(HttpStatus.CREATED)
     @Operation(
-            summary = "Create a rule for a workflow step",
-            description = "Creates a new rule (auto-approve, skip step, route approver, etc.) for a workflow step. Username is extracted from JWT token."
+            summary = SUMMARY_CREATE,
+            description = DESC_CREATE
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "Rule created successfully",
+            @ApiResponse(responseCode = CREATED_201, description = RESP_CREATED_SUCCESS,
                     content = @Content(schema = @Schema(implementation = CreateRuleResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "404", description = "Step definition not found")
+            @ApiResponse(responseCode = BAD_REQUEST_400, description = INVALID_REQUEST),
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
-    public ResponseEntity<CreateRuleResponse> createRule(
-            @Parameter(description = "Rule creation request")
+    public CreateRuleResponse createRule(
+            @Parameter(description = PARAM_CREATE_REQUEST)
             @Valid @RequestBody RuleCreateRequest request) {
         String createdBy = SecurityUtils.getCurrentUsername();
         UUID ruleId = ruleService.createRule(request, createdBy);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(CreateRuleResponse.builder().ruleId(ruleId).build());
+        return CreateRuleResponse.builder().ruleId(ruleId).build();
     }
 
-    /**
-     * Gets all rules for a workflow step.
-     *
-     * @param stepDefinitionId the step definition ID
-     * @return list of rules
-     */
     @GetMapping("/{stepDefinitionId}/rules")
     @Operation(
-            summary = "Get all rules for a workflow step",
-            description = "Retrieves all rules (active and inactive) for a specific workflow step"
+            summary = SUMMARY_GET_ALL,
+            description = DESC_GET_ALL
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Successfully retrieved rules",
+            @ApiResponse(responseCode = OK_200, description = RESP_RETRIEVED_RULES,
                     content = @Content(schema = @Schema(implementation = RuleResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Step definition not found")
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
-    public ResponseEntity<List<RuleResponse>> getRules(
-            @Parameter(description = "The step definition ID", required = true)
+    public List<RuleResponse> getRules(
+            @Parameter(description = PARAM_STEP_DEFINITION_ID, required = true)
             @PathVariable UUID stepDefinitionId) {
-        List<RuleResponse> rules = ruleService.getRulesByStepDefinition(stepDefinitionId).stream()
+        return ruleService.getRulesByStepDefinition(stepDefinitionId).stream()
                 .map(RuleResponse::fromEntity)
                 .collect(Collectors.toList());
-        return ResponseEntity.ok(rules);
     }
 
-    /**
-     * Gets a rule by ID.
-     *
-     * @param ruleId the rule ID
-     * @return the rule
-     */
     @GetMapping("/rules/{ruleId}")
     @Operation(
-            summary = "Get a rule by ID",
-            description = "Retrieves a specific rule by its ID"
+            summary = SUMMARY_GET_BY_ID,
+            description = DESC_GET_BY_ID
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Successfully retrieved rule",
+            @ApiResponse(responseCode = OK_200, description = RESP_RETRIEVED_RULE,
                     content = @Content(schema = @Schema(implementation = RuleResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Rule not found")
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
-    public ResponseEntity<RuleResponse> getRule(
-            @Parameter(description = "The rule ID", required = true)
+    public RuleResponse getRule(
+            @Parameter(description = PARAM_RULE_ID, required = true)
             @PathVariable UUID ruleId) {
-        RuleResponse rule = RuleResponse.fromEntity(ruleService.getRule(ruleId));
-        return ResponseEntity.ok(rule);
+        return RuleResponse.fromEntity(ruleService.getRule(ruleId));
     }
 
-    /**
-     * Updates a rule.
-     *
-     * @param ruleId    the rule ID
-     * @param request   the update request
-     * @return no content
-     */
     @PutMapping("/rules/{ruleId}")
     @Operation(
-            summary = "Update a rule",
-            description = "Updates an existing rule. Note: stepDefinitionId cannot be changed. Username is extracted from JWT token."
+            summary = SUMMARY_UPDATE,
+            description = DESC_UPDATE
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Rule updated successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "404", description = "Rule not found")
+            @ApiResponse(responseCode = OK_200, description = RESP_UPDATED_SUCCESS),
+            @ApiResponse(responseCode = BAD_REQUEST_400, description = INVALID_REQUEST),
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
-    public ResponseEntity<Void> updateRule(
-            @Parameter(description = "The rule ID", required = true)
+    public void updateRule(
+            @Parameter(description = PARAM_RULE_ID, required = true)
             @PathVariable UUID ruleId,
-            @Parameter(description = "Rule update request")
+            @Parameter(description = PARAM_UPDATE_REQUEST)
             @Valid @RequestBody RuleCreateRequest request) {
         String updatedBy = SecurityUtils.getCurrentUsername();
         ruleService.updateRule(ruleId, request, updatedBy);
-        return ResponseEntity.ok().build();
     }
 
-    /**
-     * Deletes a rule.
-     *
-     * @param ruleId the rule ID
-     * @return no content
-     */
     @DeleteMapping("/rules/{ruleId}")
     @Operation(
-            summary = "Delete a rule",
-            description = "Deletes a rule from a workflow step"
+            summary = SUMMARY_DELETE,
+            description = DESC_DELETE
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Rule deleted successfully"),
-            @ApiResponse(responseCode = "404", description = "Rule not found")
+            @ApiResponse(responseCode = OK_200, description = RESP_DELETED_SUCCESS),
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
-    public ResponseEntity<Void> deleteRule(
-            @Parameter(description = "The rule ID", required = true)
+    public void deleteRule(
+            @Parameter(description = PARAM_RULE_ID, required = true)
             @PathVariable UUID ruleId) {
         ruleService.deleteRule(ruleId);
-        return ResponseEntity.ok().build();
     }
 }

@@ -2,6 +2,10 @@ package com.fractalhive.workflowcore.workitem.controller;
 
 import com.fractalhive.keycloak.util.SecurityUtils;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemCreateRequest;
+
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.WorkItem.*;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.Common.*;
+import static com.fractalhive.workflowcore.common.constants.ApiConstants.ResponseCodes.*;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemResponse;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemSubmitRequest;
 import com.fractalhive.workflowcore.workitem.dto.WorkItemVersionResponse;
@@ -23,7 +27,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.bind.annotation.ResponseStatus;
 
 import java.util.List;
 import java.util.UUID;
@@ -45,232 +48,163 @@ public class WorkItemController {
         this.workItemStateMachineService = workItemStateMachineService;
     }
 
-    /**
-     * Lists all work items, optionally filtered by status and/or type.
-     *
-     * @param status optional status filter
-     * @param type   optional type filter
-     * @return list of work items
-     */
     @GetMapping
     @Operation(
-            summary = "List work items",
-            description = "Retrieves all work items, optionally filtered by status and/or type. Results are ordered by creation date (newest first)"
+            summary = SUMMARY_LIST,
+            description = DESC_LIST
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Successfully retrieved work items",
+            @ApiResponse(responseCode = OK_200, description = RESP_RETRIEVED_WORK_ITEMS,
                     content = @Content(schema = @Schema(implementation = WorkItemResponse.class)))
     })
     public List<WorkItemResponse> listWorkItems(
-            @Parameter(description = "Optional status filter", example = "DRAFT")
+            @Parameter(description = PARAM_STATUS_FILTER, example = "DRAFT")
             @RequestParam(required = false) WorkItemStatus status,
-            @Parameter(description = "Optional type filter", example = "contract")
+            @Parameter(description = PARAM_TYPE_FILTER, example = "contract")
             @RequestParam(required = false) String type) {
         return workItemService.listWorkItems(status, type);
     }
 
-    /**
-     * Creates a new work item.
-     *
-     * @param request   the work item creation request
-     * @return the created work item ID
-     */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(
-            summary = "Create a new work item",
-            description = "Creates a new work item that can be submitted for approval workflow. Username is extracted from JWT token."
+            summary = SUMMARY_CREATE,
+            description = DESC_CREATE
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "Work item created successfully",
+            @ApiResponse(responseCode = CREATED_201, description = RESP_CREATED_SUCCESS,
                     content = @Content(schema = @Schema(implementation = WorkItemCreateResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid request")
+            @ApiResponse(responseCode = BAD_REQUEST_400, description = INVALID_REQUEST)
     })
     public WorkItemCreateResponse createWorkItem(
-            @Parameter(description = "Work item creation request")
+            @Parameter(description = PARAM_CREATE_REQUEST)
             @Valid @RequestBody WorkItemCreateRequest request) {
         String createdBy = SecurityUtils.getCurrentUsername();
         UUID workItemId = workItemService.createWorkItem(request, createdBy);
         return WorkItemCreateResponse.builder().workItemId(workItemId).build();
     }
 
-    /**
-     * Gets a work item by ID.
-     *
-     * @param workItemId the work item ID
-     * @return the work item details
-     */
     @GetMapping("/{workItemId}")
     @Operation(
-            summary = "Get work item by ID",
-            description = "Retrieves detailed information about a specific work item"
+            summary = SUMMARY_GET_BY_ID,
+            description = DESC_GET_BY_ID
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Work item found",
+            @ApiResponse(responseCode = OK_200, description = RESP_FOUND,
                     content = @Content(schema = @Schema(implementation = WorkItemResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Work item not found")
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
     public WorkItemResponse getWorkItem(
-            @Parameter(description = "The work item ID", required = true)
+            @Parameter(description = PARAM_WORK_ITEM_ID, required = true)
             @PathVariable UUID workItemId) {
         return workItemService.getWorkItem(workItemId);
     }
 
-    /**
-     * Submits a work item for approval (with workItemId in path).
-     *
-     * @param workItemId  the work item ID
-     * @param request     the submission request
-     * @return the created version ID
-     */
     @PostMapping("/{workItemId}/submit")
     @Operation(
-            summary = "Submit work item for approval",
-            description = "Submits an existing work item to start the approval workflow process. Username is extracted from JWT token."
+            summary = SUMMARY_SUBMIT,
+            description = DESC_SUBMIT
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Work item submitted successfully",
+            @ApiResponse(responseCode = OK_200, description = RESP_SUBMITTED_SUCCESS,
                     content = @Content(schema = @Schema(implementation = WorkItemSubmitResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid request or work item cannot be submitted"),
-            @ApiResponse(responseCode = "404", description = "Work item not found")
+            @ApiResponse(responseCode = BAD_REQUEST_400, description = RESP_CANNOT_SUBMIT),
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
     public WorkItemSubmitResponse submitWorkItem(
-            @Parameter(description = "The work item ID", required = true)
+            @Parameter(description = PARAM_WORK_ITEM_ID, required = true)
             @PathVariable UUID workItemId,
-            @Parameter(description = "Submission request with content reference and variables")
+            @Parameter(description = PARAM_SUBMIT_REQUEST)
             @Valid @RequestBody WorkItemSubmitRequest request) {
         String submittedBy = SecurityUtils.getCurrentUsername();
         UUID versionId = workItemService.submitWorkItem(workItemId, request, submittedBy);
         return WorkItemSubmitResponse.builder().versionId(versionId).build();
     }
 
-    /**
-     * Submits a work item for approval (convenience endpoint).
-     * If workItemId is provided in request body, submits existing work item.
-     * If workItemId is not provided but type is provided, creates new work item and submits it.
-     *
-     * @param request     the submission request (may contain workItemId and/or type)
-     * @param submittedBy the user submitting the work item
-     * @return the created version ID
-     */
     @PostMapping("/submit")
     @Operation(
-            summary = "Submit or create and submit work item",
-            description = "Submits a work item for approval. If workItemId is provided, submits existing work item. " +
-                    "If workItemId is not provided but type is provided, creates a new work item and submits it."
+            summary = SUMMARY_SUBMIT_CONVENIENCE,
+            description = DESC_SUBMIT_CONVENIENCE
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Work item submitted successfully",
+            @ApiResponse(responseCode = OK_200, description = RESP_SUBMITTED_SUCCESS,
                     content = @Content(schema = @Schema(implementation = WorkItemSubmitResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid request or work item cannot be submitted"),
-            @ApiResponse(responseCode = "404", description = "Work item not found (if workItemId provided)")
+            @ApiResponse(responseCode = BAD_REQUEST_400, description = RESP_CANNOT_SUBMIT),
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
     public WorkItemSubmitResponse submitWorkItemConvenience(
-            @Parameter(description = "Submission request with optional workItemId, type, contentRef, and variables")
+            @Parameter(description = PARAM_SUBMIT_CONVENIENCE_REQUEST)
             @Valid @RequestBody WorkItemSubmitRequest request) {
         String submittedBy = SecurityUtils.getCurrentUsername();
         UUID versionId = workItemService.submitWorkItem(null, request, submittedBy);
         return WorkItemSubmitResponse.builder().versionId(versionId).build();
     }
 
-    /**
-     * Gets all versions for a work item.
-     *
-     * @param workItemId the work item ID
-     * @return list of work item versions
-     */
     @GetMapping("/{workItemId}/versions")
     @Operation(
-            summary = "Get work item versions",
-            description = "Retrieves all versions of a work item"
+            summary = SUMMARY_GET_VERSIONS,
+            description = DESC_GET_VERSIONS
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Successfully retrieved versions",
+            @ApiResponse(responseCode = OK_200, description = RESP_RETRIEVED_VERSIONS,
                     content = @Content(schema = @Schema(implementation = WorkItemVersionResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Work item not found")
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
-    public ResponseEntity<List<WorkItemVersionResponse>> getVersions(
-            @Parameter(description = "The work item ID", required = true)
+    public List<WorkItemVersionResponse> getVersions(
+            @Parameter(description = PARAM_WORK_ITEM_ID, required = true)
             @PathVariable UUID workItemId) {
-        List<WorkItemVersionResponse> versions = workItemService.getVersions(workItemId);
-        return ResponseEntity.ok(versions);
+        return workItemService.getVersions(workItemId);
     }
 
-    /**
-     * Gets workflow progress for a work item.
-     * Shows which step is currently in progress, completed steps, and overall progress.
-     *
-     * @param workItemId the work item ID
-     * @return workflow progress information
-     */
     @GetMapping("/{workItemId}/workflow-progress")
     @Operation(
-            summary = "Get workflow progress",
-            description = "Retrieves detailed workflow progress information including current step, completed steps, and overall progress"
+            summary = SUMMARY_GET_PROGRESS,
+            description = DESC_GET_PROGRESS
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Successfully retrieved progress",
+            @ApiResponse(responseCode = OK_200, description = RESP_RETRIEVED_PROGRESS,
                     content = @Content(schema = @Schema(implementation = WorkflowProgressResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Work item not found")
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
-    public ResponseEntity<WorkflowProgressResponse> getWorkflowProgress(
-            @Parameter(description = "The work item ID", required = true)
+    public WorkflowProgressResponse getWorkflowProgress(
+            @Parameter(description = PARAM_WORK_ITEM_ID, required = true)
             @PathVariable UUID workItemId) {
-        WorkflowProgressResponse progress = workItemService.getWorkflowProgress(workItemId);
-        return ResponseEntity.ok(progress);
+        return workItemService.getWorkflowProgress(workItemId);
     }
 
-    /**
-     * Archives a work item.
-     * Transitions the work item from APPROVED or REJECTED status to ARCHIVED.
-     *
-     * @param workItemId the work item ID
-     * @return no content
-     */
     @PostMapping("/{workItemId}/archive")
     @Operation(
-            summary = "Archive work item",
-            description = "Manually archives a work item, transitioning it from APPROVED or REJECTED status to ARCHIVED. Username is extracted from JWT token."
+            summary = SUMMARY_ARCHIVE,
+            description = DESC_ARCHIVE
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Work item archived successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid request or work item cannot be archived"),
-            @ApiResponse(responseCode = "404", description = "Work item not found")
+            @ApiResponse(responseCode = OK_200, description = RESP_ARCHIVED_SUCCESS),
+            @ApiResponse(responseCode = BAD_REQUEST_400, description = RESP_CANNOT_ARCHIVE),
+            @ApiResponse(responseCode = NOT_FOUND_404, description = NOT_FOUND)
     })
-    public ResponseEntity<Void> archiveWorkItem(
-            @Parameter(description = "The work item ID", required = true)
+    public void archiveWorkItem(
+            @Parameter(description = PARAM_WORK_ITEM_ID, required = true)
             @PathVariable UUID workItemId) {
         String userId = SecurityUtils.getCurrentUsername();
         workItemStateMachineService.archive(workItemId, userId);
-        return ResponseEntity.ok().build();
     }
 
-    /**
-     * Gets all work items associated with a workflow definition.
-     *
-     * @param workflowDefinitionId the workflow definition ID
-     * @return list of work items
-     */
     @GetMapping("/by-workflow/{workflowDefinitionId}")
     @Operation(
-            summary = "Get work items by workflow definition ID",
-            description = "Retrieves all work items that have workflow instances using the specified workflow definition"
+            summary = SUMMARY_GET_BY_WORKFLOW,
+            description = DESC_GET_BY_WORKFLOW
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Successfully retrieved work items",
+            @ApiResponse(responseCode = OK_200, description = RESP_RETRIEVED_WORK_ITEMS,
                     content = @Content(schema = @Schema(implementation = WorkItemResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid workflow definition ID")
+            @ApiResponse(responseCode = BAD_REQUEST_400, description = INVALID_REQUEST)
     })
-    public ResponseEntity<List<WorkItemResponse>> getWorkItemsByWorkflowDefinition(
-            @Parameter(description = "The workflow definition ID", required = true)
+    public List<WorkItemResponse> getWorkItemsByWorkflowDefinition(
+            @Parameter(description = PARAM_WORKFLOW_DEFINITION_ID, required = true)
             @PathVariable UUID workflowDefinitionId) {
-        List<WorkItemResponse> workItems = workItemService.getWorkItemsByWorkflowDefinitionId(workflowDefinitionId);
-        return ResponseEntity.ok(workItems);
+        return workItemService.getWorkItemsByWorkflowDefinitionId(workflowDefinitionId);
     }
 
-    /**
-     * Response DTO for work item creation.
-     */
     @Data
     @Builder
     @NoArgsConstructor
@@ -279,9 +213,6 @@ public class WorkItemController {
         private UUID workItemId;
     }
 
-    /**
-     * Response DTO for work item submission.
-     */
     @Data
     @Builder
     @NoArgsConstructor
