@@ -1,11 +1,21 @@
 package com.fractalhive.workflowcore.workflow.entity;
 
+import java.util.List;
+import java.util.Map;
+
+import org.hibernate.annotations.Type;
+
 import com.fractalhive.workflowcore.common.entity.BaseEntity;
-import jakarta.persistence.*;
+import com.vladmihalcea.hibernate.type.json.JsonType;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.Setter;
-
-import java.util.List;
 
 /**
  * Represents a workflow definition template.
@@ -33,4 +43,9 @@ public class WorkflowDefinition extends BaseEntity {
      */
     @OneToMany(mappedBy = "workflowDefinition", fetch = FetchType.LAZY)
     private List<WorkflowStageDefinition> stages;
+    
+    @Column(name = "visual_structure", columnDefinition = "jsonb")
+    @Type(JsonType.class)
+    private Map<String, Object> visualStructure;
+    
 }

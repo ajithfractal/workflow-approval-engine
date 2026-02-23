@@ -1,12 +1,13 @@
 package com.fractalhive.workflowcore.workflow.dto;
 
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.util.List;
-import java.util.UUID;
 
 /**
  * Response DTO for workflow definition with stages, steps and approvers.
@@ -22,7 +23,7 @@ public class WorkflowDefinitionResponse {
     private Integer version;
     private Boolean isActive;
     private List<StageDefinitionResponse> stages;
-
+    private Map<String, Object> visualStructure;
     @Data
     @Builder
     @NoArgsConstructor

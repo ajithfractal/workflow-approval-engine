@@ -83,7 +83,7 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
         Timestamp now = Timestamp.from(Instant.now());
         workflow.setCreatedAt(now);
         workflow.setCreatedBy(createdBy);
-
+        workflow.setVisualStructure(request.getVisualStructure());
         WorkflowDefinition saved = workflowDefinitionRepository.save(workflow);
         logger.info("Created workflow definition: {} v{} (ID: {})", request.getName(), request.getVersion(), saved.getId());
 
@@ -411,6 +411,7 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
             WorkflowDefinitionCreateRequest createRequest = WorkflowDefinitionCreateRequest.builder()
                     .name(workflow.getName())
                     .version(nextVersion)
+                    .visualStructure(request.getVisualStructure())
                     .build();
             UUID newWorkflowId = createWorkflow(createRequest, updatedBy);
 
@@ -432,6 +433,7 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
 
             workflow.setName(request.getName());
             workflow.setVersion(request.getVersion());
+            workflow.setVisualStructure(request.getVisualStructure());
             workflow.setUpdatedAt(Timestamp.from(Instant.now()));
             workflow.setUpdatedBy(updatedBy);
 
@@ -742,6 +744,7 @@ public class WorkflowDefinitionServiceImpl implements WorkflowDefinitionService 
                 .version(workflow.getVersion())
                 .isActive(workflow.getIsActive())
                 .stages(stageResponses)
+                .visualStructure(workflow.getVisualStructure())
                 .build();
     }
 }
