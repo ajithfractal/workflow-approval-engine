@@ -42,7 +42,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -186,15 +188,16 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
         // Move work item to IN_REVIEW
         workItemSM.startReview(workItemId, userId);
 
-        // Start first stage (stageOrder = 1)
+        // Start first stage (smallest stageOrder)
+        WorkflowStageDefinition firstStageDef = stageDefs.get(0);
+        if (firstStageDef.getStageOrder() == null) {
+            throw new IllegalStateException("Stage order cannot be null for stage: " + firstStageDef.getId());
+        }
+
         WorkflowStageInstance firstStageInstance = stageInstances.stream()
-                .filter(si -> {
-                    WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(si.getStageId())
-                            .orElse(null);
-                    return stageDef != null && stageDef.getStageOrder() == 1;
-                })
+                .filter(si -> si.getStageId().equals(firstStageDef.getId()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException("No stage with order 1 found"));
+                .orElseThrow(() -> new IllegalStateException("No stage instance found for first stage definition: " + firstStageDef.getId()));
 
         startStage(firstStageInstance.getId(), userId);
 
@@ -521,49 +524,46 @@ public class WorkflowOrchestratorServiceImpl implements WorkflowOrchestratorServ
 
         UUID workflowInstanceId = completedStage.getWorkflowInstanceId();
 
-        // Find next stage
+        // Find the next NOT_STARTED stage (smallest stageOrder among remaining).
+        // This is intentionally robust even if stageOrder values are duplicated (e.g., misconfigured definitions).
+        WorkflowInstance workflowInstance = workflowInstanceRepository.findById(workflowInstanceId)
+                .orElseThrow(() -> new IllegalStateException("Workflow instance not found: " + workflowInstanceId));
+
+        List<WorkflowStageDefinition> stageDefs = stageDefinitionRepository
+                .findByWorkflowIdOrderByStageOrderAsc(workflowInstance.getWorkflowId());
+
+        final Map<UUID, Integer> stageOrderByStageId = stageDefs.stream()
+                .collect(Collectors.toMap(WorkflowStageDefinition::getId, WorkflowStageDefinition::getStageOrder, (a, b) -> a));
+
         List<WorkflowStageInstance> allStages = stageInstanceRepository
                 .findByWorkflowInstanceIdOrderByStageOrderAsc(workflowInstanceId);
 
-        int nextStageOrder = allStages.stream()
-                .filter(si -> {
-                    WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(si.getStageId())
-                            .orElse(null);
-                    return stageDef != null
-                            && stageDef.getStageOrder() > completedStageDef.getStageOrder()
-                            && si.getStatus() == StageStatus.NOT_STARTED;
-                })
-                .map(si -> {
-                    WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(si.getStageId())
-                            .orElse(null);
-                    return stageDef != null ? stageDef.getStageOrder() : Integer.MAX_VALUE;
-                })
-                .min(Integer::compare)
-                .orElse(-1);
+        WorkflowStageInstance nextStage = allStages.stream()
+                .filter(si -> si.getStatus() == StageStatus.NOT_STARTED)
+                .min(Comparator
+                        .comparingInt((WorkflowStageInstance si) -> stageOrderByStageId.getOrDefault(si.getStageId(), Integer.MAX_VALUE))
+                        .thenComparing(WorkflowStageInstance::getStageId))
+                .orElse(null);
 
-        if (nextStageOrder == -1) {
-            // No more stages → complete workflow
+        if (nextStage != null) {
+            startStage(nextStage.getId(), userId);
+            return;
+        }
+
+        // No NOT_STARTED stages left. Only complete the workflow if all stages are COMPLETED.
+        boolean allStagesCompleted = allStages.stream().allMatch(si -> si.getStatus() == StageStatus.COMPLETED);
+        if (allStagesCompleted) {
             logger.info("All stages completed. Completing workflow instance: {}", workflowInstanceId);
             workflowInstanceSM.complete(workflowInstanceId, userId);
 
-            WorkflowInstance workflowInstance = workflowInstanceRepository.findById(workflowInstanceId)
-                    .orElseThrow(() -> new IllegalStateException("Workflow instance not found: " + workflowInstanceId));
             workItemSM.approve(workflowInstance.getWorkItemId(), userId);
             logger.info("Workflow completed and work item approved. Work item ID: {}", workflowInstance.getWorkItemId());
         } else {
-            // Start next stage
-            WorkflowStageInstance nextStage = allStages.stream()
-                    .filter(si -> {
-                        WorkflowStageDefinition stageDef = stageDefinitionRepository.findById(si.getStageId())
-                                .orElse(null);
-                        return stageDef != null && stageDef.getStageOrder() == nextStageOrder;
-                    })
-                    .findFirst()
-                    .orElse(null);
-
-            if (nextStage != null) {
-                startStage(nextStage.getId(), userId);
-            }
+            logger.warn("No NOT_STARTED stages found but not all stages are COMPLETED for workflowInstanceId={}. Stage statuses: {}",
+                    workflowInstanceId,
+                    allStages.stream()
+                            .map(si -> si.getId() + ":" + si.getStatus())
+                            .collect(Collectors.toList()));
         }
     }
 

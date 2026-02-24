@@ -17,15 +17,15 @@ import java.util.UUID;
 public interface WorkflowStageInstanceRepository extends JpaRepository<WorkflowStageInstance, UUID> {
 
     /**
-     * Find all stage instances for a workflow instance, ordered by stage order.
-     * Uses JOIN FETCH to load related step instances in the same query.
+     * Find all stage instances for a workflow instance, ordered by the stage definition's stageOrder.
      *
      * @param workflowInstanceId the workflow instance ID
      * @return list of stage instances
      */
-    @Query("SELECT DISTINCT si FROM WorkflowStageInstance si " +
+    @Query("SELECT si FROM WorkflowStageInstance si " +
+           "JOIN WorkflowStageDefinition sd ON sd.id = si.stageId " +
            "WHERE si.workflowInstanceId = :workflowInstanceId " +
-           "ORDER BY si.stageId ASC")
+           "ORDER BY sd.stageOrder ASC, si.stageId ASC")
     List<WorkflowStageInstance> findByWorkflowInstanceIdOrderByStageOrderAsc(@Param("workflowInstanceId") UUID workflowInstanceId);
 
     /**
