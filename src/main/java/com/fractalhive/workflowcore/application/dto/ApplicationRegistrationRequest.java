@@ -32,7 +32,7 @@ public class ApplicationRegistrationRequest {
      */
     @NotNull(message = "API endpoints cannot be null")
     @NotEmpty(message = "API endpoints cannot be empty")
-    private Map<String, String> apiEndpoints;
+    private Map<String, Object> apiEndpoints;
 
     /**
      * Optional API key for calling external APIs.

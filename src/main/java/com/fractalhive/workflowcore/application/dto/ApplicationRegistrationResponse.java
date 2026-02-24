@@ -21,7 +21,7 @@ public class ApplicationRegistrationResponse {
     private String applicationName;
     private String applicationCode;
     private String schemaName;
-    private Map<String, String> apiEndpoints;
+    private Map<String, Object> apiEndpoints;
     private String apiKey;
     private Boolean active;
 }

@@ -33,7 +33,7 @@ public class RegisteredApplication extends BaseEntity {
      */
     @Type(JsonType.class)
     @Column(name = "api_endpoints", nullable = false, columnDefinition = "jsonb")
-    private Map<String, String> apiEndpoints;
+    private Map<String, Object> apiEndpoints;
 
     @Column(name = "api_key", length = 255)
     private String apiKey;
